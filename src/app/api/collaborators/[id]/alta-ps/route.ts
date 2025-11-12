@@ -6,6 +6,6 @@ import { withError } from "@/server/utils/withError";
 import { altaColaboradorEnPS } from "@/server/modules/collaborators/orchestrator";
 
 export const POST = withError(async (_req, { params }: { params: { emplid: string } }) => {
-  const out = await altaColaboradorEnPS(params.emplid);
+  const out = await altaColaboradorEnPS(params.id);
   return NextResponse.json(out);
 });

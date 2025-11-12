@@ -8,7 +8,8 @@ import { hotelsService } from "@/server/modules/hotels/service";
 function parseId(raw: string) {
   const id = Number(raw);
   if (!Number.isFinite(id)) throw http.badRequest("ID inválido");
-  return id;
+  return id;  
+  
 }
 
 export const PATCH = withError(async (_req, { params }: { params: { id: string } }) => {
