@@ -17,7 +17,7 @@ export async function POST(req: Request) {
 
     const user = await prisma.user.findUnique({
       where: { username },
-      include: { hotels: { select: { hotelId: true } } },
+      include: { hotels: { select: { id: true } } },
     });
 
     if (!user || String(user.status) !== "ALTA") {

@@ -27,7 +27,7 @@ export const GET = withError(async () => {
 
   const u = await prisma.user.findUnique({
     where: { id: payload.id },
-    include: { hotels: { select: { hotelId: true } } },
+    include: { hotels: { select: { id: true } } },
   });
   if (!u) return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
 

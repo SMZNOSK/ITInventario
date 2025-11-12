@@ -65,7 +65,7 @@ export async function requireAuth(
 
     const links = await prisma.userHotel.findMany({
       where: { userId: payload.id },
-      select: { hotelId: true },
+      select: { id: true },
     });
 
     return {
