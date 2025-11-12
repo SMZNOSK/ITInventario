@@ -1,0 +1,157 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// ===================== Catálogos / Inventario =====================
+model Type {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  brands    Brand[]
+  assets    Asset[]
+  models    Model[]
+}
+
+model Brand {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  typeId    Int?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  type      Type?    @relation(fields: [typeId], references: [id])
+  assets    Asset[]
+  models    Model[]
+}
+
+model Model {
+  id             Int      @id @default(autoincrement())
+  name           String
+  typeId         Int
+  brandId        Int
+  isDiscontinued Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  assets         Asset[]
+  brand          Brand    @relation(fields: [brandId], references: [id])
+  type           Type     @relation(fields: [typeId], references: [id])
+
+  @@unique([name, typeId, brandId])
+}
+
+model Hotel {
+  id        Int         @id @default(autoincrement())
+  name      String      @unique
+  isActive  Boolean     @default(true)
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  assets    Asset[]
+  users     UserHotel[]
+}
+
+model Asset {
+  id             Int             @id @default(autoincrement())
+  serial         String          @unique
+  typeId         Int
+  brandId        Int
+  modelId        Int
+  currentHotelId Int?
+  status         EquipmentStatus @default(ALTA)
+  invoiceNumber  String?
+  invoiceDate    DateTime?
+  createdBy      Int?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  brand          Brand           @relation(fields: [brandId], references: [id])
+  currentHotel   Hotel?          @relation(fields: [currentHotelId], references: [id])
+  model          Model           @relation(fields: [modelId], references: [id])
+  type           Type            @relation(fields: [typeId], references: [id])
+
+  @@index([status])
+  @@index([currentHotelId])
+  @@map("Equipment")
+}
+
+/// ===================== Autenticación / Roles =====================
+model User {
+  id           Int         @id @default(autoincrement())
+  username     String      @unique
+  name         String
+  passwordHash String
+  status       UserStatus  @default(ALTA)
+  role         Role
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  hotels       UserHotel[]
+}
+
+model UserHotel {
+  id      Int   @id @default(autoincrement())
+  userId  Int
+  hotelId Int
+  hotel   Hotel @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  user    User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, hotelId])
+}
+
+model Provider {
+  id   Int    @id @default(autoincrement())
+  name String @unique
+}
+
+model marca {
+  id_marca     Int      @id @default(autoincrement())
+  nombre_marca String   @unique @db.VarChar(120)
+  modelo       modelo[]
+}
+
+model modelo {
+  id_modelo      Int         @id @default(autoincrement())
+  nombre_modelo  String      @unique @db.VarChar(150)
+  estado         String      @default("ALTA") @db.VarChar(10)
+  id_tipo_equipo Int
+  id_marca       Int
+  marca          marca       @relation(fields: [id_marca], references: [id_marca], onUpdate: NoAction)
+  tipo_equipo    tipo_equipo @relation(fields: [id_tipo_equipo], references: [id_tipo_equipo], onUpdate: NoAction)
+
+  @@index([estado], map: "idx_modelo_estado")
+  @@index([id_marca], map: "idx_modelo_marca")
+  @@index([id_tipo_equipo], map: "idx_modelo_tipo")
+}
+
+model proveedor {
+  id_proveedor     Int    @id @default(autoincrement())
+  nombre_proveedor String @unique @db.VarChar(150)
+}
+
+model tipo_equipo {
+  id_tipo_equipo Int      @id @default(autoincrement())
+  nombre_tipo    String   @unique @db.VarChar(120)
+  modelo         modelo[]
+}
+
+/// Estados saludables para inventario (sin borrar en duro)
+enum EquipmentStatus {
+  ALTA
+  ASIGNADO
+  TRANSFERENCIA_PENDIENTE
+  BAJA
+}
+
+/// ===================== Auth Enums =====================
+enum UserStatus {
+  ALTA
+  INACTIVO
+}
+
+enum Role {
+  ADMIN
+  ALMACEN
+  INGENIERO
+}
