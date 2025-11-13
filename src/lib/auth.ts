@@ -1,27 +1,29 @@
 // src/lib/auth.ts
-import { api } from "./api";
+import { SignJWT, jwtVerify, type JWTPayload } from "jose";
 
-export type AppRole = "ADMIN" | "ALMACEN" | "INGENIERO";
+const SECRET = process.env.JWT_SECRET || process.env.AUTH_SECRET || "dev_secret";
+const secretKey = new TextEncoder().encode(SECRET);
 
-export interface MePayload {
-  ok: boolean;
-  user: { id: number; username: string; name: string; role: AppRole; status: "ALTA" | "INACTIVO"; hotels: number[] };
+export type TokenPayload = JWTPayload & {
+  id: number;           // id de usuario en BD
+  role: string;         // rol de la app
+  email?: string | null;
+  username?: string | null;
+};
+
+export async function signToken(payload: TokenPayload, expiresIn = "7d") {
+  return await new SignJWT(payload)
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime(expiresIn)
+    .sign(secretKey);
 }
 
-/** Login: tu API puede devolver { token } o { user }. Devuelve tal cual lo que venga. */
-export function login(username: string, password: string) {
-  return api<any>("/api/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ username, password }),
-  });
-}
-
-/** Información de sesión actual */
-export function me() {
-  return api<MePayload>("/api/auth/me");
-}
-
-/** Logout (borra cookie httpOnly si aplica) */
-export function logout() {
-  return api<{ ok: true }>("/api/auth/logout", { method: "POST" });
+export async function verifyToken(token: string): Promise<TokenPayload> {
+  if (!token) throw new Error("Missing token");
+  const { payload } = await jwtVerify(token, secretKey, { algorithms: ["HS256"] });
+  if (typeof payload.id !== "number" || typeof payload.role !== "string") {
+    throw new Error("Invalid token payload");
+  }
+  return payload as TokenPayload;
 }

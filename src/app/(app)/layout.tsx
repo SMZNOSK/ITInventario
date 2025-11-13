@@ -1,10 +1,15 @@
+// src/app/(app)/layout.tsx
 "use client";
 
-import type { ReactNode } from "react";
-import AppShell from "../_ui/AppShell";
+import React from "react";
 import RequireAuth from "../_ui/RequireAuth";
+import AppShell from "../_ui/AppShell";
 
-export default function AppGroupLayout({ children }: { children: ReactNode }) {
+export default function AppLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   return (
     <RequireAuth>
       <AppShell>{children}</AppShell>

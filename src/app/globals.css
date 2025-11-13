@@ -1,67 +1,9 @@
-/* Tailwind v4 */
+/* src/app/globals.css */
 @import "tailwindcss";
 
-/* ===== Tokens ===== */
-:root {
-  --bg: #ffffff;
-  --fg: #171717;
-
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji",
-    "Segoe UI Emoji", "Segoe UI Symbol";
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
-    "Liberation Mono", "Courier New", monospace;
-}
-
-/* (Opcional) Usa clase .dark o el media-query, como prefieras */
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #0a0a0a; --fg: #ededed; }
-}
-
-/* ===== Base ===== */
-@layer base {
-  * { @apply border-slate-200 dark:border-slate-700; }
-  html, body { height: 100%; }
-
-  body {
-    @apply antialiased;
-    background: var(--bg);
-    color: var(--fg);
-    font-family: var(--font-sans);
-  }
-
-  ::selection { @apply bg-slate-900 text-white dark:bg-white dark:text-slate-900; }
-
-  a { @apply underline underline-offset-2 decoration-slate-300 hover:decoration-slate-500; }
-  button, input, textarea, select { font: inherit; color: inherit; }
-}
-
-/* ===== Components (helpers opcionales) ===== */
+/* Puedes seguir usando @layer/@apply */
 @layer components {
-  .container { @apply mx-auto max-w-7xl px-4 sm:px-6 lg:px-8; }
-  .card { @apply rounded-xl border bg-white shadow-sm dark:bg-slate-900/40; }
-  .card-section { @apply p-4 sm:p-6; }
-
   .btn {
-    @apply inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-medium
-           transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2;
+    @apply px-4 py-2 rounded-xl font-medium;
   }
-  .btn-primary {
-    @apply btn bg-slate-900 text-white hover:bg-slate-800 focus:ring-slate-400
-           dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white;
-  }
-  .btn-outline {
-    @apply btn border bg-white hover:bg-slate-50
-           dark:bg-transparent dark:hover:bg-slate-900/30;
-  }
-
-  .badge {
-    @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium
-           bg-slate-100 text-slate-800 dark:bg-slate-800 dark:text-slate-200;
-  }
-}
-
-/* ===== Utilities extra (opcionales) ===== */
-@layer utilities {
-  .scroll-smooth { scroll-behavior: smooth; }
 }

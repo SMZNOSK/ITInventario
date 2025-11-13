@@ -10,14 +10,37 @@ function buildUrl(path: string) {
   return `${API_BASE}${path}`;
 }
 
+/* ===== helpers internos ===== */
+const isBrowser = typeof window !== "undefined";
+const isFormData = (b: any): b is FormData =>
+  isBrowser && typeof FormData !== "undefined" && b instanceof FormData;
+const isBlob = (b: any): b is Blob =>
+  (isBrowser && typeof Blob !== "undefined" && b instanceof Blob) ||
+  (b && typeof b.arrayBuffer === "function" && typeof b.type === "string");
+const isArrayBufferView = (b: any): b is ArrayBufferView =>
+  b && ArrayBuffer.isView && ArrayBuffer.isView(b);
+const isArrayBufferLike = (b: any): b is ArrayBuffer =>
+  b && typeof b.byteLength === "number" && typeof b.slice === "function";
+
+function looksLikeJsonContentType(ct: string) {
+  const v = ct.toLowerCase();
+  return v.includes("application/json") || v.includes("+json") || v.includes("problem+json");
+}
+
 /** Core: fetch con manejo fino de errores, 204 y contenido no-JSON */
 export async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
   const url = buildUrl(path);
   const headers = new Headers(init.headers || {});
-  // Sólo forzamos Content-Type si hay body y el usuario no lo puso ya
-  if (init.body && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
+
+  // Solo forzamos Content-Type si hay body "JSON" y el usuario no lo puso ya.
+  // NO lo ponemos para FormData/Blob/ArrayBuffer.
+  const hasBody = init.body != null;
+  const shouldSetJsonCT =
+    hasBody &&
+    !headers.has("Content-Type") &&
+    !(isFormData(init.body) || isBlob(init.body) || isArrayBufferView(init.body) || isArrayBufferLike(init.body));
+
+  if (shouldSetJsonCT) headers.set("Content-Type", "application/json");
 
   const res = await fetch(url, {
     credentials: "include",
@@ -26,27 +49,47 @@ export async function api<T = any>(path: string, init: RequestInit = {}): Promis
     headers,
   });
 
+  // Leemos como texto una sola vez (permite inspeccionar JSON o texto)
   const raw = await res.text().catch(() => "");
 
-  // Errores: intenta sacar mensaje legible de JSON {error|message}
+  // Errores: intenta sacar mensaje legible de JSON {error|message|msg|errors[]}
   if (!res.ok) {
     let msg = `HTTP ${res.status} ${res.statusText}`;
+    let body: any = null;
+
     try {
-      const j = raw ? JSON.parse(raw) : null;
-      const found = j?.error ?? j?.message ?? j?.msg;
-      if (found) msg = String(found);
+      if (raw && looksLikeJsonContentType(res.headers.get("content-type") || "")) {
+        body = JSON.parse(raw);
+        const found =
+          body?.error ??
+          body?.message ??
+          body?.msg ??
+          (Array.isArray(body?.errors) ? body.errors.map((e: any) => e?.message ?? e).join(" · ") : null);
+        if (found) msg = String(found);
+      } else if (raw) {
+        msg = `${msg} — ${raw}`;
+      }
     } catch {
       if (raw) msg = `${msg} — ${raw}`;
     }
-    throw new Error(msg);
+
+    // Lanzamos Error simple para no romper a los callers existentes
+    const err = new Error(msg) as Error & { status?: number; body?: any; raw?: string; url?: string };
+    err.status = res.status;
+    err.body = body ?? raw;
+    err.raw = raw;
+    err.url = url;
+    throw err;
   }
 
-  // Éxito: manejar 204/response vacío o no-JSON
+  // Éxito: manejar 204/response vacío
   if (!raw || res.status === 204) return {} as T;
+
   const ctype = res.headers.get("content-type") || "";
-  if (ctype.includes("application/json")) {
-    try { return JSON.parse(raw) as T; } catch { /* cae abajo */ }
+  if (looksLikeJsonContentType(ctype)) {
+    try { return JSON.parse(raw) as T; } catch { /* retorna texto abajo */ }
   }
+
   // Si el backend devuelve algo que no es JSON, retornamos el texto
   return (raw as unknown) as T;
 }
@@ -119,7 +162,7 @@ export type MePayload = {
     name: string;
     role: AppRole;
     status: "ALTA" | "INACTIVO";
-    hotels: number[];
+    hotels?: number[]; // opcional para compatibilidad con backends que no lo envían
   };
 };
 

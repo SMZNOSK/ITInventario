@@ -13,18 +13,36 @@ function parseId(raw: string): number {
   return id;
 }
 
-export const PUT = withError(async (req, { params }: { params: { id: string } }) => {
-  const id = parseId(params.id);
-  const body = await req.json();
-  const nombre = pickBrandName(body);
-  await BrandsOrchestrator.update(id, nombre);
-  emit("catalogo_marcas", { tipo: "EDITADA", id });
-  return NextResponse.json({ success: true });
-});
+// 👇 Tipo de contexto que soporta objeto o Promise (Next 16)
+type BrandRouteContext = {
+  params: { id: string } | Promise<{ id: string }>;
+};
 
-export const DELETE = withError(async (_req, { params }: { params: { id: string } }) => {
-  const id = parseId(params.id);
-  await BrandsOrchestrator.remove(id);
-  emit("catalogo_marcas", { tipo: "ELIMINADA", id_marca: id });
-  return NextResponse.json({ success: true });
-});
+export const PUT = withError(
+  async (req: Request, ctx: BrandRouteContext) => {
+    // 👇 Desestructuramos esperando la Promise si es necesario
+    const { id: rawId } = await ctx.params;
+    const id = parseId(rawId);
+
+    const body = await req.json();
+    const nombre = pickBrandName(body);
+
+    await BrandsOrchestrator.update(id, nombre);
+    emit("catalogo_marcas", { tipo: "EDITADA", id });
+
+    return NextResponse.json({ success: true });
+  },
+);
+
+export const DELETE = withError(
+  async (_req: Request, ctx: BrandRouteContext) => {
+    // 👇 Igual aquí
+    const { id: rawId } = await ctx.params;
+    const id = parseId(rawId);
+
+    await BrandsOrchestrator.remove(id);
+    emit("catalogo_marcas", { tipo: "ELIMINADA", id_marca: id });
+
+    return NextResponse.json({ success: true });
+  },
+);
