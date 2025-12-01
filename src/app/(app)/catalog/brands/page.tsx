@@ -68,7 +68,7 @@ export default function BrandsPage() {
 
       <div className="rounded-xl border bg-white">
         {items.length === 0 ? (
-          <div className="p-6 text-center text-gray-500">Sin registros</div>
+          <div className="p-6 text-center text-gray-900">Sin registros</div>
         ) : (
           <ul className="divide-y">
             {items.map((m) => (

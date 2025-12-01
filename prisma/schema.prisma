@@ -8,14 +8,16 @@ datasource db {
 }
 
 /// ===================== Catálogos / Inventario =====================
+
 model Type {
   id        Int      @id @default(autoincrement())
   name      String   @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  brands    Brand[]
-  assets    Asset[]
-  models    Model[]
+
+  brands Brand[]
+  assets Asset[]
+  models Model[]
 }
 
 model Brand {
@@ -24,9 +26,10 @@ model Brand {
   typeId    Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  type      Type?    @relation(fields: [typeId], references: [id])
-  assets    Asset[]
-  models    Model[]
+
+  type   Type?   @relation(fields: [typeId], references: [id])
+  assets Asset[]
+  models Model[]
 }
 
 model Model {
@@ -37,21 +40,78 @@ model Model {
   isDiscontinued Boolean  @default(false)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
-  assets         Asset[]
-  brand          Brand    @relation(fields: [brandId], references: [id])
-  type           Type     @relation(fields: [typeId], references: [id])
+
+  assets Asset[]
+  brand  Brand   @relation(fields: [brandId], references: [id])
+  type   Type    @relation(fields: [typeId], references: [id])
 
   @@unique([name, typeId, brandId])
 }
 
+/// ===================== Catálogos técnicos (SO, CPU, RAM, Disco, Almacenamiento) =====================
+
+model OperatingSystem {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique // p.ej. "Windows 11 Pro"
+  vendor    String? // p.ej. "Microsoft"
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Processor {
+  id           Int      @id @default(autoincrement())
+  name         String   @unique // p.ej. "Intel Core i5-10400"
+  vendor       String? // Intel / AMD / Apple / etc
+  cores        Int?
+  threads      Int?
+  baseClockGhz Float?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model RamModule {
+  id        Int      @id @default(autoincrement())
+  name      String
+  vendor    String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DiskType {
+  id        Int      @id @default(autoincrement())
+  name      String
+  vendor    String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, vendor])
+}
+
+
+
+model StorageCapacity {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique      // "256 GB", "512 GB", "1 TB"…
+  vendor    String?                // opcional, por si quieres marca
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+
 model Hotel {
-  id        Int         @id @default(autoincrement())
-  name      String      @unique
-  isActive  Boolean     @default(true)
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  assets    Asset[]
-  users     UserHotel[]
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assets Asset[]
+  users  UserHotel[]
 }
 
 model Asset {
@@ -62,40 +122,113 @@ model Asset {
   modelId        Int
   currentHotelId Int?
   status         EquipmentStatus @default(ALTA)
-  invoiceNumber  String?
-  invoiceDate    DateTime?
-  createdBy      Int?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  brand          Brand           @relation(fields: [brandId], references: [id])
-  currentHotel   Hotel?          @relation(fields: [currentHotelId], references: [id])
-  model          Model           @relation(fields: [modelId], references: [id])
-  type           Type            @relation(fields: [typeId], references: [id])
+
+  overThreeYears Boolean @default(false)
+
+  invoiceNumber String?
+  invoiceDate   DateTime?
+  createdBy     Int?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  brand        Brand        @relation(fields: [brandId], references: [id])
+  currentHotel Hotel?       @relation(fields: [currentHotelId], references: [id])
+  model        Model        @relation(fields: [modelId], references: [id])
+  type         Type         @relation(fields: [typeId], references: [id])
+  assignments  Assignment[] @relation("AssetAssignments")
+  disposals    Disposal[]   @relation("AssetDisposals")
 
   @@index([status])
   @@index([currentHotelId])
   @@map("Equipment")
 }
 
+/// ===================== Assignment =====================
+
+enum AssignmentStatus {
+  ASIGNADO
+  DEVUELTO
+}
+
+model Assignment {
+  id               Int              @id @default(autoincrement())
+  assetId          Int
+  collaboratorId   String
+  collaboratorName String?
+  status           AssignmentStatus @default(ASIGNADO)
+  assignedAt       DateTime         @default(now())
+  returnedAt       DateTime?
+  createdById      Int?
+
+  // Relación con Asset
+  asset Asset @relation("AssetAssignments", fields: [assetId], references: [id])
+
+  // Relación con User (quién creó la asignación)
+  createdBy User? @relation("UserAssignments", fields: [createdById], references: [id])
+
+  // Nueva relación con Collaborator
+  collaborator Collaborator? @relation("CollaboratorAssignments", fields: [collaboratorId], references: [id])
+
+  @@index([assetId])
+  @@index([collaboratorId])
+}
+
+/// ===================== Disposal / BAJAS  =====================
+
+model Disposal {
+  id          Int      @id @default(autoincrement())
+  assetId     Int
+  reason      String
+  notes       String?
+  evidenceUrl String?
+  disposedAt  DateTime @default(now())
+  createdById Int?
+
+  asset     Asset @relation("AssetDisposals", fields: [assetId], references: [id])
+  createdBy User? @relation("UserDisposals", fields: [createdById], references: [id])
+
+  @@index([assetId])
+}
+
 /// ===================== Autenticación / Roles =====================
+
 model User {
-  id           Int         @id @default(autoincrement())
-  username     String      @unique
+  id           Int        @id @default(autoincrement())
+  username     String     @unique
   name         String
   passwordHash String
-  status       UserStatus  @default(ALTA)
+  status       UserStatus @default(ALTA)
   role         Role
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  hotels       UserHotel[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  hotels             UserHotel[]
+  createdAssignments Assignment[] @relation("UserAssignments")
+  createdDisposals   Disposal[]   @relation("UserDisposals")
+}
+
+model Collaborator {
+  /// EMPLID (PeopleSoft)
+  id       String  @id
+  name     String
+  phone    String?
+  email    String?
+  jobTitle String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  //Backref de asignaciones
+  assignments Assignment[] @relation("CollaboratorAssignments")
 }
 
 model UserHotel {
-  id      Int   @id @default(autoincrement())
+  id      Int @id @default(autoincrement())
   userId  Int
   hotelId Int
-  hotel   Hotel @relation(fields: [hotelId], references: [id], onDelete: Cascade)
-  user    User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  hotel Hotel @relation(fields: [hotelId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, hotelId])
 }
@@ -105,20 +238,24 @@ model Provider {
   name String @unique
 }
 
+/// ===================== Tablas legacy (PeopleSoft-like) =====================
+
 model marca {
-  id_marca     Int      @id @default(autoincrement())
-  nombre_marca String   @unique @db.VarChar(120)
-  modelo       modelo[]
+  id_marca     Int    @id @default(autoincrement())
+  nombre_marca String @unique @db.VarChar(120)
+
+  modelo modelo[]
 }
 
 model modelo {
-  id_modelo      Int         @id @default(autoincrement())
-  nombre_modelo  String      @unique @db.VarChar(150)
-  estado         String      @default("ALTA") @db.VarChar(10)
+  id_modelo      Int    @id @default(autoincrement())
+  nombre_modelo  String @unique @db.VarChar(150)
+  estado         String @default("ALTA") @db.VarChar(10)
   id_tipo_equipo Int
   id_marca       Int
-  marca          marca       @relation(fields: [id_marca], references: [id_marca], onUpdate: NoAction)
-  tipo_equipo    tipo_equipo @relation(fields: [id_tipo_equipo], references: [id_tipo_equipo], onUpdate: NoAction)
+
+  marca       marca       @relation(fields: [id_marca], references: [id_marca], onUpdate: NoAction)
+  tipo_equipo tipo_equipo @relation(fields: [id_tipo_equipo], references: [id_tipo_equipo], onUpdate: NoAction)
 
   @@index([estado], map: "idx_modelo_estado")
   @@index([id_marca], map: "idx_modelo_marca")
@@ -131,10 +268,13 @@ model proveedor {
 }
 
 model tipo_equipo {
-  id_tipo_equipo Int      @id @default(autoincrement())
-  nombre_tipo    String   @unique @db.VarChar(120)
-  modelo         modelo[]
+  id_tipo_equipo Int    @id @default(autoincrement())
+  nombre_tipo    String @unique @db.VarChar(120)
+
+  modelo modelo[]
 }
+
+/// ===================== Enums =====================
 
 /// Estados saludables para inventario (sin borrar en duro)
 enum EquipmentStatus {
@@ -144,7 +284,6 @@ enum EquipmentStatus {
   BAJA
 }
 
-/// ===================== Auth Enums =====================
 enum UserStatus {
   ALTA
   INACTIVO

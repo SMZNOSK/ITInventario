@@ -1,10 +1,35 @@
 // src/server/dto/disposals.ts
 import { z } from "zod";
 
-export const DisposeDTO = z.object({
-  assetId: z.string().min(1),
-  reason: z.string().min(1),
-  evidence: z.string().url().optional(),
-});
+/**
+ * DTO base para crear una baja.
+ *
+ * - assetId puede ser:
+ *   - ID numérico del Asset (ej. 1)
+ *   - Serial del equipo (ej. "PROY-0001")
+ * - Los demás campos son opcionales por ahora, pero ya quedan listos
+ *   por si luego agregas evidencia o control más fino.
+ */
+export const DisposalDTO = z
+  .object({
+    // ID numérico o serial de texto
+    assetId: z.union([z.string(), z.number()]),
 
-export type DisposeInput = z.infer<typeof DisposeDTO>;
+    // motivo principal de la baja
+    reason: z.string().min(1, "El motivo es requerido"),
+
+    // notas adicionales opcionales
+    notes: z.string().optional(),
+
+    // evidencia opcional (PDF/foto, URL absoluta o relativa)
+    evidenceUrl: z.string().url().optional(),
+
+    // quién hizo la baja (id de usuario); opcional por ahora
+    createdById: z.number().int().optional(),
+
+    // fecha concreta; si no viene, usamos new Date()
+    disposedAt: z.coerce.date().optional(),
+  })
+  .strict();
+
+export type DisposalInput = z.infer<typeof DisposalDTO>;

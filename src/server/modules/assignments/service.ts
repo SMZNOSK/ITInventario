@@ -13,100 +13,179 @@ export type AssignmentListItem = {
   returnedAt?: Date;
 };
 
-// Dummy temporal (si el modelo Assignment aún no existe)
-const DUMMY_ASSIGNMENTS: AssignmentListItem[] = [
-  {
-    id: "A-1",
-    assetSerial: "MX-ABC-0001",
-    collaboratorId: "123456",
-    collaboratorName: "Juan Pérez",
-    status: "ASIGNADO",
-    assignedAt: new Date("2025-11-01T10:00:00Z"),
-  },
-  {
-    id: "A-2",
-    assetSerial: "MX-ABC-0001",
-    collaboratorId: "789012",
-    collaboratorName: "María López",
-    status: "DEVUELTO",
-    assignedAt: new Date("2025-10-20T09:00:00Z"),
-    returnedAt: new Date("2025-10-25T18:30:00Z"),
-  },
-];
+/* ========= Helpers ========= */
 
-// Helper: intenta usar número si aplica; si no, usa string
-function asId<T extends number | string>(raw: string): T {
-  const n = Number(raw);
-  return (Number.isFinite(n) ? (n as any) : (raw as any)) as T;
+function mapRowToListItem(row: {
+  id: number;
+  collaboratorId: string;
+  collaboratorName: string | null;
+  status: "ASIGNADO" | "DEVUELTO";
+  assignedAt: Date;
+  returnedAt: Date | null;
+  asset: { serial: string };
+}): AssignmentListItem {
+  return {
+    id: String(row.id),
+    assetSerial: row.asset?.serial ?? "",
+    collaboratorId: row.collaboratorId,
+    collaboratorName: row.collaboratorName ?? "",
+    status: row.status,
+    assignedAt: row.assignedAt,
+    returnedAt: row.returnedAt ?? undefined,
+  };
 }
 
-/** Listado */
+/* ========= Listado ========= */
+
 export async function list(): Promise<AssignmentListItem[]> {
   try {
-    // Si existe el modelo Assignment en Prisma, úsalo.
-    // @ts-expect-error: acceso dinámico por si aún no existe el tipo
     const rows = await prisma.assignment.findMany({
-      include: { asset: true, collaborator: true },
-      orderBy: { startAt: "desc" },
+      include: { asset: true },
+      orderBy: { assignedAt: "desc" },
     });
 
-    return rows.map((row: any) => ({
-      id: row.id,
-      assetSerial: row.asset?.serial ?? "",
-      collaboratorId: row.collaboratorId,
-      collaboratorName: row.collaborator?.nombre ?? row.collaborator?.name ?? "",
-      status: row.endAt ? "DEVUELTO" : "ASIGNADO",
-      assignedAt: row.startAt,
-      returnedAt: row.endAt ?? undefined,
-    }));
-  } catch {
-    // Fallback al dummy si el modelo aún no existe
-    return DUMMY_ASSIGNMENTS;
+    return rows.map(mapRowToListItem);
+  } catch (err) {
+    console.error("[assignments:list] Error:", err);
+    throw { status: 500, message: "Error al listar asignaciones" };
   }
 }
 
-/** Crear asignación */
-export async function assign(data: AssignInput) {
-  return prisma.$transaction(async (tx) => {
-    // Nota: si tu PK de asset es string, asId<string>; si es int, asId<number>
-    const assetId = asId<any>(data.assetId);
+/* ========= Crear asignación ========= */
 
-    const asset = await tx.asset.findUnique({ where: { id: assetId } });
-    if (!asset) throw { status: 404, message: "Asset not found" };
+export async function assign(data: AssignInput): Promise<AssignmentListItem> {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const rawAssetId = (data as any).assetId;
 
-    // En tu schema: EquipmentStatus con "ALTA"
-    if (asset.status !== "ALTA") {
-      throw { status: 400, message: "Asset not ALTA" };
+      if (!rawAssetId && rawAssetId !== 0) {
+        throw { status: 400, message: "assetId es requerido" };
+      }
+
+      // 1) Intentar como ID numérico
+      let asset = null;
+      let numericAssetId: number | null = null;
+
+      const maybeNumber = Number(rawAssetId);
+      if (Number.isFinite(maybeNumber)) {
+        numericAssetId = maybeNumber;
+        asset = await tx.asset.findUnique({
+          where: { id: maybeNumber },
+        });
+      }
+
+      // 2) Si no se encontró por ID (o no era número), intentar por serial
+      if (!asset) {
+        asset = await tx.asset.findUnique({
+          where: { serial: String(rawAssetId) },
+        });
+        if (asset) {
+          numericAssetId = asset.id;
+        }
+      }
+
+      if (!asset || numericAssetId == null) {
+        throw { status: 404, message: "Asset not found" };
+      }
+
+      // 3) Validar estado del asset
+      if (asset.status === "BAJA") {
+        throw {
+          status: 409,
+          message: "El equipo está en BAJA y no se puede asignar",
+        };
+      }
+
+      // 4) Verificar que no haya asignación abierta
+      const open = await tx.assignment.findFirst({
+        where: {
+          assetId: numericAssetId,
+          status: "ASIGNADO",
+        },
+      });
+
+      if (open) {
+        throw { status: 409, message: "Asset already assigned (open)" };
+      }
+
+      // 5) Crear la asignación
+      const created = await tx.assignment.create({
+        data: {
+          assetId: numericAssetId,
+          collaboratorId: data.collaboratorId,
+          collaboratorName: (data as any).collaboratorName ?? null,
+          status: "ASIGNADO",
+          assignedAt: (data as any).startAt ?? new Date(),
+          createdById: (data as any).assignedBy ?? null,
+        },
+        include: { asset: true },
+      });
+
+      // 6) Actualizar estado del asset a ASIGNADO
+      await tx.asset.update({
+        where: { id: numericAssetId },
+        data: { status: "ASIGNADO" },
+      });
+
+      return mapRowToListItem(created);
+    });
+  } catch (err) {
+    console.error("[assignments:assign] Error:", err);
+    if (err && typeof err === "object" && "status" in (err as any)) {
+      throw err;
     }
-
-    // @ts-expect-error: dinámico por si el modelo aún no existe
-    const open = await tx.assignment.findFirst({
-      where: { assetId, endAt: null },
-    });
-    if (open) throw { status: 409, message: "Asset already assigned (open)" };
-
-    const collab = await tx.collaborator.findUnique({
-      where: { id: data.collaboratorId },
-    });
-    if (!collab) throw { status: 404, message: "Collaborator not found" };
-
-    // @ts-expect-error: dinámico por si el modelo aún no existe
-    return tx.assignment.create({
-      data: {
-        assetId,
-        collaboratorId: data.collaboratorId,
-        assignedBy: data.assignedBy,
-        startAt: data.startAt ?? new Date(),
-      },
-    });
-  });
+    throw { status: 500, message: "Error al crear asignación" };
+  }
 }
 
-/** Terminar asignación */
-export async function end(id: string) {
-  // @ts-expect-error: dinámico por si el modelo aún no existe
-  return prisma.assignment.update({
-    where: { id },
-    data: { endAt: new Date() },
-  });
+/* ========= Terminar asignación ========= */
+
+export async function end(id: string): Promise<AssignmentListItem> {
+  try {
+    const numericId = Number(id);
+    if (!Number.isFinite(numericId)) {
+      throw { status: 400, message: "assignment id inválido" };
+    }
+
+    const existing = await prisma.assignment.findUnique({
+      where: { id: numericId },
+      include: { asset: true },
+    });
+
+    if (!existing) {
+      throw { status: 404, message: "Assignment not found" };
+    }
+
+    if (existing.status === "DEVUELTO") {
+      // Ya está devuelta → devolvemos tal cual
+      return mapRowToListItem(existing as any);
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const updatedAssignment = await tx.assignment.update({
+        where: { id: numericId },
+        data: {
+          status: "DEVUELTO",
+          returnedAt: new Date(),
+        },
+        include: { asset: true },
+      });
+
+      // Devolver el equipo a ALTA
+      await tx.asset.update({
+        where: { id: existing.assetId },
+        data: { status: "ALTA" },
+      });
+
+      return updatedAssignment;
+    });
+
+    return mapRowToListItem(updated as any);
+  } catch (err) {
+    console.error("[assignments:end] Error:", err);
+    if (err && typeof err === "object" && "status" in (err as any)) {
+      throw err;
+    }
+    throw { status: 500, message: "Error al terminar asignación" };
+  }
 }

@@ -3,14 +3,42 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { withError } from "@/server/utils/withError";
-import { importAssetByCode } from "@/server/modules/assets/orchestrator";
+// Cuando tengas listo el orquestador real, descomenta y ajusta el nombre:
+// import { importExternalAssetByCode } from "@/server/modules/assets/orchestrator";
+// Opcional auth:
 // import { requireAuth, ensureRole } from "@/server/guards/auth";
 
-export const POST = withError(async (_req, { params }: { params: { code: string } }) => {
-  // const auth = await requireAuth(_req); if (!auth.ok) return auth.res;
-  // const deny = ensureRole(auth.data, "ADMIN", "ALMACEN"); if (deny) return deny;
+type Params = { params: { code: string } };
 
-  const out = await importAssetByCode(params.code);
-  const status = out.ok ? 200 : 502;
-  return NextResponse.json(out, { status });
+// Handler común para GET y POST
+const handler = withError(async (_req: Request, { params }: Params) => {
+  const raw = params.code?.trim();
+
+  if (!raw) {
+    return NextResponse.json(
+      { error: "Código requerido" },
+      { status: 400 }
+    );
+  }
+
+  // Aquí en el futuro vas a llamar a tu integración externa:
+  //
+  // const result = await importExternalAssetByCode(raw);
+  // return NextResponse.json(result, { status: result.created ? 201 : 200 });
+  //
+  // De momento dejamos un stub controlado para que no truene.
+
+  return NextResponse.json(
+    {
+      ok: false,
+      code: raw,
+      message:
+        "Importación externa pendiente de integración (PeopleSoft / Asset API).",
+    },
+    { status: 501 } // Not Implemented
+  );
 });
+
+// Aceptar ambos métodos para evitar 405 (GET y POST)
+export const GET = handler;
+export const POST = handler;

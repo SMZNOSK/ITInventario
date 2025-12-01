@@ -24,21 +24,31 @@ const isArrayBufferLike = (b: any): b is ArrayBuffer =>
 
 function looksLikeJsonContentType(ct: string) {
   const v = ct.toLowerCase();
-  return v.includes("application/json") || v.includes("+json") || v.includes("problem+json");
+  return (
+    v.includes("application/json") ||
+    v.includes("+json") ||
+    v.includes("problem+json")
+  );
 }
 
 /** Core: fetch con manejo fino de errores, 204 y contenido no-JSON */
-export async function api<T = any>(path: string, init: RequestInit = {}): Promise<T> {
+export async function api<T = any>(
+  path: string,
+  init: RequestInit = {}
+): Promise<T> {
   const url = buildUrl(path);
   const headers = new Headers(init.headers || {});
 
-  // Solo forzamos Content-Type si hay body "JSON" y el usuario no lo puso ya.
-  // NO lo ponemos para FormData/Blob/ArrayBuffer.
   const hasBody = init.body != null;
   const shouldSetJsonCT =
     hasBody &&
     !headers.has("Content-Type") &&
-    !(isFormData(init.body) || isBlob(init.body) || isArrayBufferView(init.body) || isArrayBufferLike(init.body));
+    !(
+      isFormData(init.body) ||
+      isBlob(init.body) ||
+      isArrayBufferView(init.body) ||
+      isArrayBufferLike(init.body)
+    );
 
   if (shouldSetJsonCT) headers.set("Content-Type", "application/json");
 
@@ -49,10 +59,8 @@ export async function api<T = any>(path: string, init: RequestInit = {}): Promis
     headers,
   });
 
-  // Leemos como texto una sola vez (permite inspeccionar JSON o texto)
   const raw = await res.text().catch(() => "");
 
-  // Errores: intenta sacar mensaje legible de JSON {error|message|msg|errors[]}
   if (!res.ok) {
     let msg = `HTTP ${res.status} ${res.statusText}`;
     let body: any = null;
@@ -64,7 +72,9 @@ export async function api<T = any>(path: string, init: RequestInit = {}): Promis
           body?.error ??
           body?.message ??
           body?.msg ??
-          (Array.isArray(body?.errors) ? body.errors.map((e: any) => e?.message ?? e).join(" · ") : null);
+          (Array.isArray(body?.errors)
+            ? body.errors.map((e: any) => e?.message ?? e).join(" · ")
+            : null);
         if (found) msg = String(found);
       } else if (raw) {
         msg = `${msg} — ${raw}`;
@@ -73,8 +83,12 @@ export async function api<T = any>(path: string, init: RequestInit = {}): Promis
       if (raw) msg = `${msg} — ${raw}`;
     }
 
-    // Lanzamos Error simple para no romper a los callers existentes
-    const err = new Error(msg) as Error & { status?: number; body?: any; raw?: string; url?: string };
+    const err = new Error(msg) as Error & {
+      status?: number;
+      body?: any;
+      raw?: string;
+      url?: string;
+    };
     err.status = res.status;
     err.body = body ?? raw;
     err.raw = raw;
@@ -82,15 +96,17 @@ export async function api<T = any>(path: string, init: RequestInit = {}): Promis
     throw err;
   }
 
-  // Éxito: manejar 204/response vacío
   if (!raw || res.status === 204) return {} as T;
 
   const ctype = res.headers.get("content-type") || "";
   if (looksLikeJsonContentType(ctype)) {
-    try { return JSON.parse(raw) as T; } catch { /* retorna texto abajo */ }
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      // caer a texto
+    }
   }
 
-  // Si el backend devuelve algo que no es JSON, retornamos el texto
   return (raw as unknown) as T;
 }
 
@@ -109,6 +125,7 @@ export function apiJSON<T = any>(
 }
 
 /* ========= Tipos comunes ========= */
+
 export type ListResponse<T> = { items: T[] };
 
 export type CollaboratorItem = {
@@ -153,7 +170,9 @@ export type DisposalItem = {
 };
 
 /* ========= Auth helpers ========= */
+
 export type AppRole = "ADMIN" | "ALMACEN" | "INGENIERO";
+
 export type MePayload = {
   ok: boolean;
   user: {
@@ -162,12 +181,10 @@ export type MePayload = {
     name: string;
     role: AppRole;
     status: "ALTA" | "INACTIVO";
-    hotels?: number[]; // opcional para compatibilidad con backends que no lo envían
+    hotels?: number[];
   };
 };
 
-// Tu /api/auth/login puede devolver { token } o { user } según tu implementación.
-// Este wrapper te retorna tal cual lo que venga.
 export function apiLogin(username: string, password: string) {
   return api<any>("/api/auth/login", {
     method: "POST",
@@ -183,7 +200,8 @@ export function apiLogout() {
   return api<{ ok: true }>("/api/auth/logout", { method: "POST" });
 }
 
-/* ========= Recursos ========= */
+/* ========= Recursos “planos” ========= */
+
 export function fetchCollaborators() {
   return api<ListResponse<CollaboratorItem>>("/api/collaborators");
 }
@@ -200,41 +218,99 @@ export function fetchDisposals() {
   return api<ListResponse<DisposalItem>>("/api/disposals");
 }
 
-/* ========= Catálogos (vía /api/catalog/*) ========= */
+/* ========= Catálogos ========= */
+
 export type TypeItem = { id: number; name: string; active?: boolean | null };
 export type BrandItem = { id: number; name: string; typeId?: number | null };
-export type ModelItem = { id: number; name: string; typeId?: number; brandId?: number; status?: "ALTA" | "BAJA" };
+export type ModelItem = {
+  id: number;
+  name: string;
+  typeId?: number | null;
+  brandId?: number | null;
+  status?: "ALTA" | "BAJA" | string | null;
+};
 export type ProviderItem = { id: number; name: string; active?: boolean | null };
 
+/** Catálogo de sistemas operativos (nuevo) */
+export type OperatingSystemItem = {
+  id: number;
+  name: string;
+  vendor?: string | null;
+  active?: boolean | null;
+};
+
 export const Catalog = {
-  // Types
-  listTypes: () => api<{ items: TypeItem[] }>("/api/catalog/types"),
+  /* ----- Types ----- */
+  listTypes: async () => {
+    const r = await api<any>("/api/catalog/types");
+    const raw: any[] =
+      (r.items as any[] | undefined) ??
+      (r.tipos as any[] | undefined) ??
+      [];
+    const items: TypeItem[] = raw.map((t) => ({
+      id: t.id ?? t.id_tipo_equipo ?? t.ID,
+      name: t.name ?? t.nombre ?? t.nombre_tipo ?? "",
+      active:
+        typeof t.active === "boolean"
+          ? t.active
+          : t.estado
+          ? String(t.estado).toUpperCase() === "ALTA"
+          : true,
+    }));
+    return { items };
+  },
+
   createType: (name: string) =>
-    api<TypeItem>("/api/catalog/types", { method: "POST", body: JSON.stringify({ name }) }),
-  updateType: (id: number, data: Partial<Pick<TypeItem, "name" | "active">>) =>
-    api<TypeItem>(`/api/catalog/types/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    api<any>("/api/catalog/types", {
+      method: "POST",
+      body: JSON.stringify({ name, nombre: name, nombre_tipo: name }),
+    }),
+
+  updateType: (
+    id: number,
+    data: Partial<Pick<TypeItem, "name" | "active">>
+  ) =>
+    api<any>(`/api/catalog/types/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
   deleteType: (id: number) =>
     api<void>(`/api/catalog/types/${id}`, { method: "DELETE" }),
 
-  // Brands (normaliza { success, marcas } -> { items })
+  /* ----- Brands ----- */
   listBrands: async (typeId?: number) => {
     const qs = typeof typeId === "number" ? `?typeId=${typeId}` : "";
     const r = await api<any>(`/api/catalog/brands${qs}`);
-    const items: BrandItem[] = (r.items ?? r.marcas ?? []).map((b: any) => ({
-      id: b.id ?? b.id_marca ?? b.idBrand ?? b.brandId ?? b.ID,
+    const raw: any[] =
+      (r.items as any[] | undefined) ??
+      (r.marcas as any[] | undefined) ??
+      (r.brands as any[] | undefined) ??
+      [];
+    const items: BrandItem[] = raw.map((b) => ({
+      id: b.id ?? b.id_marca ?? b.ID,
       name: b.name ?? b.nombre_marca ?? b.nombre ?? "",
       typeId: b.typeId ?? b.id_tipo_equipo ?? null,
     }));
     return { items };
   },
+
   createBrand: (name: string) =>
-    api<any>("/api/catalog/brands", { method: "POST", body: JSON.stringify({ name, nombre_marca: name }) }),
+    api<any>("/api/catalog/brands", {
+      method: "POST",
+      body: JSON.stringify({ name, nombre_marca: name }),
+    }),
+
   updateBrand: (id: number, name: string) =>
-    api<any>(`/api/catalog/brands/${id}`, { method: "PUT", body: JSON.stringify({ name, nombre_marca: name }) }),
+    api<any>(`/api/catalog/brands/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ name, nombre_marca: name }),
+    }),
+
   deleteBrand: (id: number) =>
     api<any>(`/api/catalog/brands/${id}`, { method: "DELETE" }),
 
-  // Models
+  /* ----- Models ----- */
   listModels: (filters?: { typeId?: number; brandId?: number }) => {
     const params = new URLSearchParams();
     if (filters?.typeId) params.set("typeId", String(filters.typeId));
@@ -242,19 +318,112 @@ export const Catalog = {
     const qs = params.toString() ? `?${params.toString()}` : "";
     return api<{ items: ModelItem[] }>(`/api/catalog/models${qs}`);
   },
+
   createModel: (name: string, typeId: number, brandId: number) =>
-    api<ModelItem>("/api/catalog/models", { method: "POST", body: JSON.stringify({ name, typeId, brandId }) }),
-  updateModel: (id: number, data: Partial<Pick<ModelItem, "name" | "status">>) =>
-    api<ModelItem>(`/api/catalog/models/${id}`, { method: "PUT", body: JSON.stringify(data) }),
+    api<any>("/api/catalog/models", {
+      method: "POST",
+      body: JSON.stringify({
+        nombre: name,
+        name,
+        idTipo: typeId,
+        typeId,
+        idMarca: brandId,
+        brandId,
+      }),
+    }),
+
+  /** Nuevo helper para PATCH /api/catalog/models/[id]/estado */
+  updateModelStatus: (id: number, estado: "ALTA" | "BAJA") =>
+    apiJSON(`/api/catalog/models/${id}/estado`, "PATCH", { estado }),
+
+  // (dejamos updateModel y deleteModel por compatibilidad)
+  updateModel: (
+    id: number,
+    data: Partial<Pick<ModelItem, "name" | "status">>
+  ) =>
+    api<any>(`/api/catalog/models/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
+
   deleteModel: (id: number) =>
     api<void>(`/api/catalog/models/${id}`, { method: "DELETE" }),
 
-  // Providers
-  listProviders: () => api<{ items: ProviderItem[] }>("/api/catalog/providers"),
+  /* ----- Providers ----- */
+  listProviders: async () => {
+    const r = await api<any>("/api/catalog/providers");
+    const raw: any[] =
+      (r.items as any[] | undefined) ??
+      (r.providers as any[] | undefined) ??
+      (r.proveedores as any[] | undefined) ??
+      [];
+    const items: ProviderItem[] = raw.map((p) => ({
+      id: p.id ?? p.id_proveedor ?? p.ID,
+      name: p.name ?? p.nombre ?? "",
+      active:
+        typeof p.active === "boolean"
+          ? p.active
+          : p.estado
+          ? String(p.estado).toUpperCase() === "ALTA"
+          : true,
+    }));
+    return { items };
+  },
+
   createProvider: (name: string) =>
-    api<ProviderItem>("/api/catalog/providers", { method: "POST", body: JSON.stringify({ name }) }),
-  updateProvider: (id: number, name: string) =>
-    api<ProviderItem>(`/api/catalog/providers/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
+    api<any>("/api/catalog/providers", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  // Puede recibir: (id, "Nuevo nombre")  o  (id, { name?, active? })
+  updateProvider: (
+    id: number,
+    data: string | Partial<Pick<ProviderItem, "name" | "active">>
+  ) => {
+    const payload =
+      typeof data === "string"
+        ? { name: data }
+        : data ?? {};
+
+    return api<any>(`/api/catalog/providers/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+
   deleteProvider: (id: number) =>
     api<void>(`/api/catalog/providers/${id}`, { method: "DELETE" }),
+
+  /* ----- Operating Systems (Sistemas Operativos) ----- */
+  listOperatingSystems: async () => {
+    const r = await api<any>("/api/catalog/os");
+    const raw: any[] =
+      (r.items as any[] | undefined) ??
+      (r.sistemas as any[] | undefined) ??
+      (r.operatingSystems as any[] | undefined) ??
+      [];
+
+    const items: OperatingSystemItem[] = raw.map((o) => ({
+      id: o.id ?? o.ID,
+      name: o.name ?? o.nombre ?? o.nombre_so ?? "",
+      vendor: o.vendor ?? null,
+      active:
+        typeof o.isActive === "boolean"
+          ? o.isActive
+          : o.estado
+          ? String(o.estado).toUpperCase() === "ALTA"
+          : true,
+    }));
+
+    return { items };
+  },
+
+  createOperatingSystem: (name: string, vendor?: string) =>
+    apiJSON("/api/catalog/os", "POST", {
+      name,
+      nombre: name,
+      nombre_so: name,
+      vendor,
+    }),
 };

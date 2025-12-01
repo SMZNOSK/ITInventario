@@ -12,10 +12,16 @@ function parseId(raw: string) {
   return id;
 }
 
-export const PATCH = withError(async (req, { params }: { params: { id: string } }) => {
-  const id = parseId(params.id);
-  const body = await req.json();
-  const { estado } = UpdateModelEstadoDTO.parse(body);
-  await svc.updateModeloEstado(id, estado as "ALTA" | "BAJA");
-  return NextResponse.json({ success: true });
-});
+export const PATCH = withError(
+  async (req: Request, ctx: { params: Promise<{ id: string }> }) => {
+    const { id: rawId } = await ctx.params;
+    const id = parseId(rawId);
+
+    const body = await req.json();
+    const { estado } = UpdateModelEstadoDTO.parse(body);
+
+    await svc.updateModeloEstado(id, estado as "ALTA" | "BAJA");
+
+    return NextResponse.json({ success: true });
+  }
+);

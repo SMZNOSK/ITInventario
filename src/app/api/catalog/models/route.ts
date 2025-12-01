@@ -5,23 +5,30 @@ import { NextResponse } from "next/server";
 import { withError } from "@/server/utils/withError";
 import * as svc from "@/server/modules/models/service";
 import { CreateModelDTO } from "@/server/dto/models";
-// Opcional auth:
-// import { requireAuth, ensureRole } from "@/server/guards/auth";
 
+// GET /api/catalog/models
 export const GET = withError(async () => {
-  // const auth = await requireAuth(req); if (!auth.ok) return auth.res;
-  // const deny = ensureRole(auth.data, "ADMIN"); if (deny) return deny;
-
   const modelos = await svc.listModelos();
-  return NextResponse.json({ success: true, modelos });
+
+  const items = modelos.map((m) => ({
+    id: m.id,
+    name: m.name,
+    typeId: m.typeId,
+    brandId: m.brandId,
+    // ya viene "ALTA" | "BAJA" desde service.ts
+    status: m.status,
+  }));
+
+  return NextResponse.json({ items });
 });
 
-export const POST = withError(async (req) => {
-  // const auth = await requireAuth(req); if (!auth.ok) return auth.res;
-  // const deny = ensureRole(auth.data, "ADMIN"); if (deny) return deny;
+// POST igual que lo tienes, no hace falta tocarlo
 
+
+// POST /api/catalog/models
+export const POST = withError(async (req: Request) => {
   const body = await req.json();
-  const data = CreateModelDTO.parse(body);
+  const data = CreateModelDTO.parse(body); // -> { nombre, idTipo, idMarca }
   const id = await svc.createModelo(data);
   return NextResponse.json({ success: true, id }, { status: 201 });
 });

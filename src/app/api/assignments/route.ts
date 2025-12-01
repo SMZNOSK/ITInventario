@@ -5,7 +5,6 @@ import { NextResponse } from "next/server";
 import { withError } from "@/server/utils/withError";
 import { AssignDTO } from "@/server/dto/assignments";
 import * as s from "@/server/modules/assignments/service";
-// Opcional auth:
 // import { requireAuth, ensureRole } from "@/server/guards/auth";
 
 export const GET = withError(async () => {

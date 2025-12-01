@@ -106,9 +106,17 @@ export default function CollaboratorsPage() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Ej. Juan Pérez o 123456"
-              className="w-full border rounded-lg px-3 py-2 text-sm bg-white dark:bg-slate-900"
+              className="
+      w-full rounded-lg border px-3 py-2 text-sm
+      bg-white text-slate-900
+      placeholder:text-slate-400
+      dark:bg-slate-900 dark:text-slate-50
+      dark:placeholder:text-slate-400
+      focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500
+    "
             />
           </div>
+
 
           <div className="flex items-center gap-3">
             <label className="text-xs text-slate-600 dark:text-slate-300">
@@ -117,7 +125,12 @@ export default function CollaboratorsPage() {
             <select
               value={pageSize}
               onChange={(e) => setPageSize(Number(e.target.value))}
-              className="border rounded-lg px-2 py-1 text-sm bg-white dark:bg-slate-900"
+              className="
+    border rounded-lg px-2 py-1 text-sm
+    bg-white text-slate-900
+    dark:bg-slate-900 dark:text-slate-50
+    focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500
+  "
             >
               {[10, 20, 50, 100].map((n) => (
                 <option key={n} value={n}>
@@ -125,6 +138,7 @@ export default function CollaboratorsPage() {
                 </option>
               ))}
             </select>
+
           </div>
         </div>
 
