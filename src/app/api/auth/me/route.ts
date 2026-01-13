@@ -31,6 +31,13 @@ export const GET = withError(async () => {
   });
   if (!u) return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
 
+  // ✅ Obtener hoteles asignados al usuario
+  const userHotels = await prisma.userHotel.findMany({
+    where: { userId: payload.id },
+    select: { hotelId: true },
+  });
+  const hotelIds = userHotels.map((h) => h.hotelId);
+
   return NextResponse.json({
     ok: true,
     user: {
@@ -39,6 +46,7 @@ export const GET = withError(async () => {
       name: (u as any).name ?? null,
       role: (u as any).role ?? "USER",
       status: (u as any).status ?? null,
+      hotels: hotelIds, // ✅ Incluir hoteles en la respuesta
     },
   });
 });

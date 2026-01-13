@@ -4,30 +4,51 @@ import { prisma } from "@/lib/db";
 import type { CreateHotelInput, UpdateHotelInput } from "@/server/dto/hotels";
 
 export const hotelsService = {
-  listAll() {
-    return prisma.hotel.findMany({ orderBy: { name: "asc" } });
+  async listAll() {
+    const hotels = await prisma.hotel.findMany({ orderBy: { name: "asc" } });
+    // Transformar isActive a active para compatibilidad con el frontend
+    return hotels.map((h) => ({
+      ...h,
+      active: h.isActive,
+    }));
   },
 
-  getById(id: number) {
-    return prisma.hotel.findUnique({ where: { id } });
+  async getById(id: number) {
+    const hotel = await prisma.hotel.findUnique({ where: { id } });
+    if (!hotel) return null;
+    return {
+      ...hotel,
+      active: hotel.isActive,
+    };
   },
 
   create(data: CreateHotelInput) {
     return prisma.hotel.create({ data: { name: data.name } });
   },
 
-  update(id: number, data: UpdateHotelInput) {
-    return prisma.hotel.update({
+  async update(id: number, data: UpdateHotelInput) {
+    const updated = await prisma.hotel.update({
       where: { id },
       data: {
         ...(data.name ? { name: data.name } : {}),
-        ...(typeof data.active === "boolean" ? { active: data.active } : {}),
+        ...(typeof data.active === "boolean" ? { isActive: data.active } : {}),
       },
     });
+    return {
+      ...updated,
+      active: updated.isActive,
+    };
   },
 
-  setActive(id: number, active: boolean) {
-    return prisma.hotel.update({ where: { id }, data: { active } });
+  async setActive(id: number, active: boolean) {
+    const updated = await prisma.hotel.update({
+      where: { id },
+      data: { isActive: active },
+    });
+    return {
+      ...updated,
+      active: updated.isActive,
+    };
   },
 
   delete(id: number) {

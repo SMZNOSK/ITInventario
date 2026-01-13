@@ -14,6 +14,8 @@ import {
   Laptop,
   Tablet,
   Wifi,
+  Building2,
+  ChevronDown,
 } from "lucide-react";
 
 type AssetStatus = "ALTA" | "ASIGNADO" | "TRANSFERENCIA_PENDIENTE" | "BAJA";
@@ -118,6 +120,15 @@ function formatInvoiceDate(dateIso: string | null): string {
   });
 }
 
+/* ===== Tipos flexibles para “a quién está asignado / prestado” ===== */
+
+type OwnerInfo = {
+  kind: "ASSIGNMENT" | "LOAN";
+  collaboratorId?: string;
+  collaboratorName?: string | null;
+  display: string;
+};
+
 export default function AssetsPage() {
   const { fetchJSON } = useAuth();
   const router = useRouter();
@@ -130,6 +141,8 @@ export default function AssetsPage() {
 
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
+  const [hotelFilter, setHotelFilter] = useState<string>("");
+  const [hotels, setHotels] = useState<{ id: number; name: string }[]>([]);
 
   const [importCode, setImportCode] = useState("");
   const [importMsg, setImportMsg] = useState<string | null>(null);
@@ -143,14 +156,32 @@ export default function AssetsPage() {
   const [modalStatus, setModalStatus] = useState<AssetStatus>("ALTA");
   const [modalOlderThan3, setModalOlderThan3] = useState<boolean>(false);
 
+  // “Asignado / Prestado a…”
+  const [ownerLoading, setOwnerLoading] = useState(false);
+  const [ownerInfo, setOwnerInfo] = useState<OwnerInfo | null>(null);
+
   /* ===== Query de filtros existentes ===== */
 
   const qs = useMemo(() => {
     const p = new URLSearchParams();
     if (q.trim()) p.set("q", q.trim());
     if (statusFilter) p.set("status", statusFilter);
+    if (hotelFilter) p.set("hotelId", hotelFilter);
     return p.toString();
-  }, [q, statusFilter]);
+  }, [q, statusFilter, hotelFilter]);
+
+  /* ===== Cargar lista de hoteles ===== */
+  useEffect(() => {
+    async function loadHotels() {
+      try {
+        const res = await fetchJSON<{ items: { id: number; name: string }[] }>("/api/hotels/active");
+        setHotels(res.items ?? []);
+      } catch (e) {
+        console.error("Error cargando hoteles:", e);
+      }
+    }
+    loadHotels();
+  }, [fetchJSON]);
 
   const currentModalAsset = useMemo(
     () => rows.find((r) => r.id === modalAssetId) || null,
@@ -171,8 +202,8 @@ export default function AssetsPage() {
       const items = Array.isArray((data as any)?.items)
         ? (data as any).items
         : Array.isArray(data)
-        ? (data as any)
-        : [];
+          ? (data as any)
+          : [];
 
       setRows(
         items.map((a: AssetApi) => {
@@ -385,16 +416,140 @@ export default function AssetsPage() {
     }
   }
 
+  /* ========= “Dueño” del activo (asignado / prestado) ========= */
+
+  async function loadOwnerForAsset(params: { serial: string }) {
+    const serial = (params.serial || "").trim();
+    if (!serial) {
+      setOwnerInfo(null);
+      return;
+    }
+
+    setOwnerLoading(true);
+    setOwnerInfo(null);
+
+    // 1) Intentar con asignaciones
+    try {
+      const data = await fetchJSON("/api/assignments");
+      const items: any[] = Array.isArray((data as any)?.items)
+        ? (data as any).items
+        : Array.isArray(data)
+          ? (data as any)
+          : [];
+
+      const active = items.find((x) => {
+        const s = String(x?.assetSerial ?? x?.serial ?? "").trim();
+        const st = String(x?.status ?? "").toUpperCase();
+        return s === serial && st === "ASIGNADO";
+      });
+
+      if (active) {
+        const collaboratorId = active?.collaboratorId
+          ? String(active.collaboratorId)
+          : undefined;
+        const collaboratorName =
+          (active?.collaboratorName ?? null) as string | null;
+
+        const display = collaboratorName
+          ? `Asignado a ${collaboratorName}${collaboratorId ? ` (${collaboratorId})` : ""}`
+          : collaboratorId
+            ? `Asignado a ${collaboratorId}`
+            : "Asignado (sin colaborador detectado)";
+
+        setOwnerInfo({
+          kind: "ASSIGNMENT",
+          collaboratorId,
+          collaboratorName,
+          display,
+        });
+        return;
+      }
+    } catch (e) {
+      // No bloqueamos el modal si falla esta consulta.
+      console.error("No se pudo cargar /api/assignments", e);
+    }
+
+    // 2) Intentar con préstamos (si existe endpoint /api/loans)
+    try {
+      const data = await fetchJSON("/api/loans");
+      const items: any[] = Array.isArray((data as any)?.items)
+        ? (data as any).items
+        : Array.isArray(data)
+          ? (data as any)
+          : [];
+
+      // Heurística flexible (porque el shape exacto puede variar)
+      const active = items.find((x) => {
+        const s = String(
+          x?.assetSerial ?? x?.serial ?? x?.asset?.serial ?? "",
+        ).trim();
+        if (s !== serial) return false;
+
+        const returnedAt = x?.returnedAt ?? x?.returnDate ?? null;
+        if (returnedAt) return false;
+
+        const st = String(x?.status ?? "").toUpperCase();
+        // Si hay status y no es "DEVUELTO", lo tomamos como activo.
+        if (st) return st !== "DEVUELTO" && st !== "RETURNED";
+
+        // Si no hay status, consideramos activo si no hay returnedAt
+        return true;
+      });
+
+      if (active) {
+        const collaboratorId = active?.collaboratorId
+          ? String(active.collaboratorId)
+          : active?.borrowerId
+            ? String(active.borrowerId)
+            : undefined;
+
+        const collaboratorName =
+          (active?.collaboratorName ??
+            active?.borrowerName ??
+            null) as string | null;
+
+        const display = collaboratorName
+          ? `Prestado a ${collaboratorName}${collaboratorId ? ` (${collaboratorId})` : ""}`
+          : collaboratorId
+            ? `Prestado a ${collaboratorId}`
+            : "Prestado (sin colaborador detectado)";
+
+        setOwnerInfo({
+          kind: "LOAN",
+          collaboratorId,
+          collaboratorName,
+          display,
+        });
+        return;
+      }
+    } catch (e) {
+      // Si no existe /api/loans o falla, lo ignoramos.
+      console.error("No se pudo cargar /api/loans (opcional)", e);
+    }
+
+    setOwnerInfo(null);
+    setOwnerLoading(false);
+  }
+
   /* ========= Modal ========= */
 
   function openModal(asset: AssetRow) {
     setModalAssetId(asset.id);
     setModalStatus(asset.status);
     setModalOlderThan3(asset.olderThan3Years);
+
+    // Cargar “a quién está asignado/prestado” (best-effort)
+    setOwnerInfo(null);
+    setOwnerLoading(true);
+    void loadOwnerForAsset({ serial: asset.serial }).finally(() => {
+      setOwnerLoading(false);
+    });
   }
 
   function closeModal() {
     setModalAssetId(null);
+    setOwnerInfo(null);
+    setOwnerLoading(false);
   }
 
   async function handleSaveModal() {
@@ -409,6 +564,12 @@ export default function AssetsPage() {
     } catch {
       // el updateRow ya setea el mensaje de error
     }
+  }
+
+  function handleGoToCollaborator() {
+    if (!ownerInfo?.collaboratorId) return;
+    closeModal();
+    router.push(`/equipo/assignments/${encodeURIComponent(ownerInfo.collaboratorId)}`);
   }
 
   /* ========= Stats (solo presentación) ========= */
@@ -517,22 +678,42 @@ export default function AssetsPage() {
           />
         </div>
 
-        <div className="flex items-center justify-between gap-3 md:justify-end">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Filtro de estado */}
           <div className="flex items-center rounded-lg bg-slate-100 p-1 text-xs font-medium text-slate-600">
             {statusPills.map((pill) => (
               <button
                 key={pill.value || "ALL"}
                 type="button"
                 onClick={() => setStatusFilter(pill.value)}
-                className={`px-3 py-1.5 rounded-md transition-all ${
-                  statusFilter === pill.value
+                className={`px-3 py-1.5 rounded-md transition-all ${statusFilter === pill.value
                     ? "bg-white text-slate-900 shadow-sm"
                     : "text-slate-500 hover:text-slate-700"
-                }`}
+                  }`}
               >
                 {pill.label}
               </button>
             ))}
+          </div>
+
+          {/* Filtro de hotel */}
+          <div className="relative">
+            <div className="flex items-center gap-2">
+              <Building2 className="w-4 h-4 text-slate-400" />
+              <select
+                value={hotelFilter}
+                onChange={(e) => setHotelFilter(e.target.value)}
+                className="appearance-none bg-white border border-slate-200 rounded-lg pl-3 pr-8 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer"
+              >
+                <option value="">Todos los hoteles</option>
+                {hotels.map((h) => (
+                  <option key={h.id} value={String(h.id)}>
+                    {h.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            </div>
           </div>
         </div>
       </section>
@@ -724,21 +905,30 @@ export default function AssetsPage() {
       {/* Modal de detalle / edición */}
       {currentModalAsset && modalAssetId !== null && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl border border-slate-200">
+          {/* ↑ Aumentamos el tamaño para tener espacio (max-w-3xl) */}
+          <div className="w-full max-w-3xl rounded-2xl bg-white shadow-xl border border-slate-200">
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
               <div>
-                <h3 className="text-sm font-semibold text-slate-900">
-                  Detalle del equipo
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    Detalle del equipo
+                  </h3>
+                  <span
+                    className={
+                      "inline-flex items-center justify-center " +
+                      getStatusClasses(currentModalAsset.status)
+                    }
+                  >
+                    {getStatusLabel(currentModalAsset.status)}
+                  </span>
+                </div>
                 <div className="mt-0.5 flex items-center gap-2">
                   <p className="text-xs text-slate-500 font-mono">
                     Serial: {currentModalAsset.serial}
                   </p>
                   <button
                     type="button"
-                    onClick={() =>
-                      handleCopySerial(currentModalAsset.serial)
-                    }
+                    onClick={() => handleCopySerial(currentModalAsset.serial)}
                     className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-slate-100 hover:border-slate-300"
                   >
                     Copiar código
@@ -754,10 +944,10 @@ export default function AssetsPage() {
               </button>
             </div>
 
-            <div className="px-4 py-3 space-y-4 text-xs">
+            <div className="px-4 py-4 space-y-4 text-xs">
               {/* Aviso y accesos rápidos */}
               <div className="flex flex-col gap-2 rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-600 md:flex-row md:items-center md:justify-between">
-                <p className="md:max-w-xs">
+                <p className="md:max-w-xl">
                   Desde este visor solo se guardan detalles administrativos
                   (años y factura). Para cambios operativos usa las otras
                   pantallas.
@@ -788,139 +978,188 @@ export default function AssetsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    Tipo
-                  </div>
-                  <div className="text-slate-900">
-                    {currentModalAsset.typeLabel}
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    Marca
-                  </div>
-                  <div className="text-slate-900">
-                    {currentModalAsset.brandLabel}
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    Modelo
-                  </div>
-                  <div className="text-slate-900">
-                    {currentModalAsset.modelLabel}
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                    Hotel
-                  </div>
-                  <div className="text-slate-900">
-                    {currentModalAsset.hotelLabel}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                  Estatus
-                </div>
-                <select
-                  value={modalStatus}
-                  onChange={(e) =>
-                    setModalStatus(e.target.value as AssetStatus)
-                  }
-                  disabled
-                  className="
-                    w-full rounded-md border px-2 py-1 text-xs
-                    border-slate-200 bg-slate-50 text-slate-500
-                    cursor-not-allowed
-                  "
-                >
-                  <option value="ALTA">ALTA</option>
-                  <option value="ASIGNADO">ASIGNADO</option>
-                  <option value="TRANSFERENCIA_PENDIENTE">
-                    TRANSFERENCIA_PENDIENTE
-                  </option>
-                  <option value="BAJA">BAJA</option>
-                </select>
-                <p className="text-[10px] text-slate-500">
-                  Para cambiar el estatus usa las pantallas de{" "}
-                  <span className="font-semibold">Asignaciones</span> o{" "}
-                  <span className="font-semibold">Bajas</span>.
-                </p>
-              </div>
-
-              {/* Bloque de +3 años y factura (solo lectura) */}
-              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2">
-                <label className="inline-flex items-start gap-2 text-xs text-slate-800">
-                  <input
-                    type="checkbox"
-                    checked={modalOlderThan3}
-                    onChange={(e) => {
-                      const checked = e.target.checked;
-                      setModalOlderThan3(checked);
-                    }}
-                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
-                  />
-                  <span>
-                    Equipo con <span className="font-semibold">+3 años</span>{" "}
-                    (factura antigua)
-                  </span>
-                </label>
-
-                <div className="rounded-md bg-white/70 px-3 py-2 text-[11px] text-slate-700">
-                  {modalOlderThan3 ? (
-                    <>
-                      <p className="font-semibold text-slate-800">
-                        Marcado como mayor a 3 años
-                      </p>
-                      <p className="mt-0.5">
-                        Para este equipo no es obligatorio consultar la factura
-                        desde el sistema. Se mantiene solo como referencia
-                        histórica.
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="font-semibold text-slate-800">
-                        Información de factura
-                      </p>
-                      {currentModalAsset.invoiceNumber ||
-                      currentModalAsset.invoiceDate ? (
-                        <p className="mt-0.5">
-                          {currentModalAsset.invoiceNumber && (
-                            <>
-                              Folio:{" "}
-                              <span className="font-mono">
-                                {currentModalAsset.invoiceNumber}
-                              </span>
-                            </>
-                          )}
-                          {currentModalAsset.invoiceNumber &&
-                            currentModalAsset.invoiceDate &&
-                            " • "}
-                          {currentModalAsset.invoiceDate && (
-                            <>
-                              Fecha:{" "}
-                              <span className="font-medium">
-                                {formatInvoiceDate(
-                                  currentModalAsset.invoiceDate,
-                                )}
-                              </span>
-                            </>
-                          )}
-                        </p>
+              {/* NUEVO: bloque de “Asignado / Prestado a…” */}
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-3">
+                <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      Resguardo / Préstamo
+                    </div>
+                    <div className="mt-1 text-sm text-slate-900">
+                      {ownerLoading ? (
+                        <span className="text-slate-500">
+                          Cargando información…
+                        </span>
+                      ) : ownerInfo ? (
+                        <span>{ownerInfo.display}</span>
                       ) : (
-                        <p className="mt-0.5 text-slate-500">
-                          Sin factura registrada para este equipo. Si la
-                          capturaste desde Inventario, se mostrará aquí.
-                        </p>
+                        <span className="text-slate-500">
+                          Sin asignación o préstamo activo detectado.
+                        </span>
                       )}
-                    </>
-                  )}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleGoToCollaborator}
+                      disabled={!ownerInfo?.collaboratorId}
+                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={
+                        ownerInfo?.collaboratorId
+                          ? "Abrir resguardo del colaborador"
+                          : "No se detectó colaborador"
+                      }
+                    >
+                      Ver colaborador
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Contenido principal en 2 columnas (mejor orden) */}
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {/* Columna izquierda: datos del activo */}
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Tipo
+                      </div>
+                      <div className="text-slate-900">
+                        {currentModalAsset.typeLabel}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Marca
+                      </div>
+                      <div className="text-slate-900">
+                        {currentModalAsset.brandLabel}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Modelo
+                      </div>
+                      <div className="text-slate-900">
+                        {currentModalAsset.modelLabel}
+                      </div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                        Hotel
+                      </div>
+                      <div className="text-slate-900">
+                        {currentModalAsset.hotelLabel}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      Estatus
+                    </div>
+                    <select
+                      value={modalStatus}
+                      onChange={(e) =>
+                        setModalStatus(e.target.value as AssetStatus)
+                      }
+                      disabled
+                      className="
+                        w-full rounded-md border px-2 py-1 text-xs
+                        border-slate-200 bg-slate-50 text-slate-500
+                        cursor-not-allowed
+                      "
+                    >
+                      <option value="ALTA">ALTA</option>
+                      <option value="ASIGNADO">ASIGNADO</option>
+                      <option value="TRANSFERENCIA_PENDIENTE">
+                        TRANSFERENCIA_PENDIENTE
+                      </option>
+                      <option value="BAJA">BAJA</option>
+                    </select>
+                    <p className="text-[10px] text-slate-500">
+                      Para cambiar el estatus usa las pantallas de{" "}
+                      <span className="font-semibold">Asignaciones</span> o{" "}
+                      <span className="font-semibold">Bajas</span>.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Columna derecha: +3 años y factura */}
+                <div className="space-y-4">
+                  <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-3">
+                    <label className="inline-flex items-start gap-2 text-xs text-slate-800">
+                      <input
+                        type="checkbox"
+                        checked={modalOlderThan3}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setModalOlderThan3(checked);
+                        }}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900"
+                      />
+                      <span>
+                        Equipo con{" "}
+                        <span className="font-semibold">+3 años</span> (factura
+                        antigua)
+                      </span>
+                    </label>
+
+                    <div className="rounded-md bg-white/70 px-3 py-2 text-[11px] text-slate-700">
+                      {modalOlderThan3 ? (
+                        <>
+                          <p className="font-semibold text-slate-800">
+                            Marcado como mayor a 3 años
+                          </p>
+                          <p className="mt-0.5">
+                            Para este equipo no es obligatorio consultar la
+                            factura desde el sistema. Se mantiene solo como
+                            referencia histórica.
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-semibold text-slate-800">
+                            Información de factura
+                          </p>
+                          {currentModalAsset.invoiceNumber ||
+                            currentModalAsset.invoiceDate ? (
+                            <p className="mt-0.5">
+                              {currentModalAsset.invoiceNumber && (
+                                <>
+                                  Folio:{" "}
+                                  <span className="font-mono">
+                                    {currentModalAsset.invoiceNumber}
+                                  </span>
+                                </>
+                              )}
+                              {currentModalAsset.invoiceNumber &&
+                                currentModalAsset.invoiceDate &&
+                                " • "}
+                              {currentModalAsset.invoiceDate && (
+                                <>
+                                  Fecha:{" "}
+                                  <span className="font-medium">
+                                    {formatInvoiceDate(
+                                      currentModalAsset.invoiceDate,
+                                    )}
+                                  </span>
+                                </>
+                              )}
+                            </p>
+                          ) : (
+                            <p className="mt-0.5 text-slate-500">
+                              Sin factura registrada para este equipo. Si la
+                              capturaste desde Inventario, se mostrará aquí.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

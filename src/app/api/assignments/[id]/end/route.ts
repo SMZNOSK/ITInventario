@@ -1,33 +1,26 @@
 // src/app/api/assignments/[id]/end/route.ts
 export const runtime = "nodejs";
 
-import { NextResponse } from "next/server";
-import * as s from "@/server/modules/assignments/service";
+import { NextRequest, NextResponse } from "next/server";
+import { withError } from "@/server/utils/withError";
+import { requireAuth } from "@/server/guards/auth";
+import { parseId } from "@/server/utils/events";
+import * as svc from "@/server/modules/assignments/service";
 
-// En Next 15, params viene como Promise
-type Context = {
+type ParamsContext = {
   params: Promise<{ id: string }>;
 };
 
-export async function POST(_req: Request, { params }: Context) {
-  try {
-    const { id } = await params; // 👈 aquí lo resolvemos
+// POST /api/assignments/[id]/end
+export const POST = withError(
+  async (req: NextRequest, context: ParamsContext) => {
+    const auth = await requireAuth(req);
+    if (auth.error) return auth.error;
 
-    const assignment = await s.end(id);
-    return NextResponse.json({ assignment }, { status: 200 });
-  } catch (err: any) {
-    console.error("[api/assignments/:id/end] Error:", err);
+    const { id } = await context.params;
+    const assignmentId = parseId(id);
 
-    const status =
-      typeof err?.status === "number" && err.status >= 400 && err.status <= 599
-        ? err.status
-        : 500;
-
-    const message =
-      typeof err?.message === "string" && err.message.length > 0
-        ? err.message
-        : "Error al marcar como devuelto";
-
-    return NextResponse.json({ error: message }, { status });
-  }
-}
+    await svc.markReturned(assignmentId);
+    return NextResponse.json({ ok: true });
+  },
+);

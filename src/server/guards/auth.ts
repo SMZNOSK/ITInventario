@@ -2,90 +2,130 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { verifyToken } from "@/server/auth";
+import { verifyToken } from "@/lib/auth"; // <- MISMO verificador que /api/auth/me
 
-/** Roles de la app (ajusta si tu enum crece) */
-export type AppRole = "ADMIN" | "ALMACEN" | "INGENIERO";
+/** Roles de la app */
+export type AppRole = "ADMIN" | "ALMACEN" | "INGENIERO" | "USER";
 
-/** Payload que expondremos a las rutas */
 export type UserPayload = {
   id: number;
   role: AppRole;
-  hotels: number[]; // permisos por hotel
+  hotels: number[];
 };
 
-/** Resultado estándar para guards */
 type GuardFail = { ok: false; res: NextResponse };
 type GuardOk<T> = { ok: true; data: T };
 
-/* --------------- helpers internos --------------- */
+const BAD_LITERALS = new Set(["", "null", "undefined"]);
 
-/** Intenta extraer Bearer de Authorization */
-function tokenFromAuthHeader(req: Request): string | null {
-  const h = req.headers.get("authorization") || "";
-  if (h.startsWith("Bearer ")) return h.slice(7).trim() || null;
-  return null;
+function sanitizeToken(raw: string | null): string | null {
+  if (!raw) return null;
+  let t = raw.trim();
+  if (!t) return null;
+
+  if (t.toLowerCase().startsWith("bearer ")) t = t.slice(7).trim();
+  if (t.startsWith("s:")) t = t.slice(2).trim();
+
+  const low = t.toLowerCase();
+  if (BAD_LITERALS.has(low)) return null;
+
+  if (
+    (t.startsWith('"') && t.endsWith('"')) ||
+    (t.startsWith("'") && t.endsWith("'"))
+  ) {
+    t = t.slice(1, -1).trim();
+    if (!t) return null;
+  }
+
+  return t;
 }
 
-/** Busca cookie 'token' en header Cookie */
+function tokenFromAuthHeader(req: Request): string | null {
+  const h = req.headers.get("authorization") || "";
+  if (!h.toLowerCase().startsWith("bearer ")) return null;
+  return sanitizeToken(h.slice(7));
+}
+
 function tokenFromCookie(req: Request): string | null {
   const raw = req.headers.get("cookie") || "";
   if (!raw) return null;
+
   const parts = raw.split(";").map((s) => s.trim());
-  const hit = parts.find((p) => p.toLowerCase().startsWith("token="));
+
+  let hit = parts.find((p) => p.toLowerCase().startsWith("token="));
+  if (!hit) hit = parts.find((p) => p.toLowerCase().startsWith("session="));
   if (!hit) return null;
-  const [, v] = hit.split("=");
-  return v ? decodeURIComponent(v) : null;
-}
 
-/** Extrae token por cookie o auth header */
-function extractToken(req: Request): string | null {
-  return tokenFromCookie(req) ?? tokenFromAuthHeader(req);
-}
+  const idx = hit.indexOf("=");
+  const v = idx >= 0 ? hit.slice(idx + 1) : "";
+  if (!v) return null;
 
-/* --------------- Guards públicos --------------- */
-
-/**
- * requireAuth:
- * - Verifica JWT
- * - Carga hoteles del usuario
- * Devuelve {ok:true,data:user} o {ok:false,res:NextResponse} con 401.
- */
-export async function requireAuth(
-  req: Request
-): Promise<GuardOk<UserPayload> | GuardFail> {
   try {
-    const raw = extractToken(req);
-    if (!raw) {
-      return { ok: false, res: NextResponse.json({ error: "No autenticado" }, { status: 401 }) };
-    }
-
-    // payload esperado: { id:number, role: AppRole }
-    const payload = verifyToken<{ id: number; role: AppRole }>(raw);
-
-    const links = await prisma.userHotel.findMany({
-      where: { userId: payload.id },
-      select: { id: true },
-    });
-
-    return {
-      ok: true,
-      data: {
-        id: payload.id,
-        role: payload.role,
-        hotels: links.map((l) => l.hotelId),
-      },
-    };
+    return sanitizeToken(decodeURIComponent(v));
   } catch {
-    return { ok: false, res: NextResponse.json({ error: "Token inválido" }, { status: 401 }) };
+    return sanitizeToken(v);
   }
 }
 
-/**
- * ensureRole:
- * - Verifica que user.role esté dentro de roles permitidos.
- * Devuelve `null` si pasa; NextResponse 403 si falla.
- */
+export async function requireAuth(
+  req: Request
+): Promise<GuardOk<UserPayload> | GuardFail> {
+  const headerTok = tokenFromAuthHeader(req);
+  const cookieTok = tokenFromCookie(req);
+
+  const candidates = Array.from(
+    new Set([headerTok, cookieTok].filter(Boolean) as string[])
+  );
+
+  if (candidates.length === 0) {
+    return {
+      ok: false,
+      res: NextResponse.json({ error: "No autenticado" }, { status: 401 }),
+    };
+  }
+
+  // Probar ambos tokens: Bearer y cookie. El primero que verifique gana.
+  let lastErr: unknown = null;
+
+  for (const tok of candidates) {
+    try {
+      const payload = (await verifyToken(tok)) as any; // <- lib/auth
+      const userId = Number(payload?.id);
+
+      if (!Number.isFinite(userId)) {
+        return {
+          ok: false,
+          res: NextResponse.json({ error: "Token inválido" }, { status: 401 }),
+        };
+      }
+
+      const role = String(payload?.role ?? "USER") as AppRole;
+
+      const links = await prisma.userHotel.findMany({
+        where: { userId },
+        select: { hotelId: true },
+      });
+
+      return {
+        ok: true,
+        data: {
+          id: userId,
+          role,
+          hotels: links.map((l) => l.hotelId),
+        },
+      };
+    } catch (e) {
+      lastErr = e;
+      continue;
+    }
+  }
+
+  return {
+    ok: false,
+    res: NextResponse.json({ error: "Token inválido" }, { status: 401 }),
+  };
+}
+
 export function ensureRole(user: UserPayload, ...roles: AppRole[]): NextResponse | null {
   if (!roles.includes(user.role)) {
     return NextResponse.json({ error: "Sin permiso" }, { status: 403 });
@@ -93,12 +133,6 @@ export function ensureRole(user: UserPayload, ...roles: AppRole[]): NextResponse
   return null;
 }
 
-/**
- * ensureHotelAccess:
- * - ADMIN pasa siempre
- * - Para otros roles, exige que hotelId ∈ user.hotels
- * Devuelve `null` si pasa; NextResponse 400/403 si falla.
- */
 export function ensureHotelAccess(
   user: UserPayload,
   hotelIdRaw: unknown,

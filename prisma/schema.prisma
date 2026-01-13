@@ -1,3 +1,5 @@
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -53,7 +55,7 @@ model Model {
 model OperatingSystem {
   id        Int      @id @default(autoincrement())
   name      String   @unique // p.ej. "Windows 11 Pro"
-  vendor    String? // p.ej. "Microsoft"
+  vendor    String?  // p.ej. "Microsoft"
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -62,7 +64,7 @@ model OperatingSystem {
 model Processor {
   id           Int      @id @default(autoincrement())
   name         String   @unique // p.ej. "Intel Core i5-10400"
-  vendor       String? // Intel / AMD / Apple / etc
+  vendor       String?  // Intel / AMD / Apple / etc
   cores        Int?
   threads      Int?
   baseClockGhz Float?
@@ -91,17 +93,38 @@ model DiskType {
   @@unique([name, vendor])
 }
 
-
-
 model StorageCapacity {
   id        Int      @id @default(autoincrement())
-  name      String   @unique      // "256 GB", "512 GB", "1 TB"…
-  vendor    String?                // opcional, por si quieres marca
+  name      String   @unique // "256 GB", "512 GB", "1 TB"…
+  vendor    String?  // opcional, por si quieres marca
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
+/// ===================== Catálogos lógicos (Plataformas / Departamentos) =====================
+
+model Platform {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments       Assignment[]
+  loans             Loan[]
+  manualAssignments ManualAssignment[]
+}
+
+model Department {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments Assignment[]
+}
 
 model Hotel {
   id        Int      @id @default(autoincrement())
@@ -112,6 +135,16 @@ model Hotel {
 
   assets Asset[]
   users  UserHotel[]
+
+  // ✅ Backref correcto para Loan.hotel (misma relation name)
+  loans Loan[] @relation("LoanHotel")
+
+  // ✅ Relaciones para transferencias
+  transfersAsOrigin AssetTransfer[] @relation("TransferOrigin")
+  transfersAsDest   AssetTransfer[] @relation("TransferDest")
+
+  // ✅ Relación para bajas
+  disposals Disposal[] @relation("HotelDisposals")
 }
 
 model Asset {
@@ -131,12 +164,16 @@ model Asset {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  brand        Brand        @relation(fields: [brandId], references: [id])
-  currentHotel Hotel?       @relation(fields: [currentHotelId], references: [id])
-  model        Model        @relation(fields: [modelId], references: [id])
-  type         Type         @relation(fields: [typeId], references: [id])
-  assignments  Assignment[] @relation("AssetAssignments")
-  disposals    Disposal[]   @relation("AssetDisposals")
+  brand             Brand              @relation(fields: [brandId], references: [id])
+  currentHotel      Hotel?             @relation(fields: [currentHotelId], references: [id])
+  model             Model              @relation(fields: [modelId], references: [id])
+  type              Type               @relation(fields: [typeId], references: [id])
+  assignments       Assignment[]       @relation("AssetAssignments")
+  manualAssignments ManualAssignment[] @relation("AssetManualAssignments")
+  disposals         Disposal[]         @relation("AssetDisposals")
+
+  // ✅ Relación para transferencias
+  transfers AssetTransfer[]
 
   @@index([status])
   @@index([currentHotelId])
@@ -160,34 +197,136 @@ model Assignment {
   returnedAt       DateTime?
   createdById      Int?
 
-  // Relación con Asset
-  asset Asset @relation("AssetAssignments", fields: [assetId], references: [id])
+  /// Nombre de equipo estable por colaborador (CPU/LAP)
+  teamName String?
 
-  // Relación con User (quién creó la asignación)
-  createdBy User? @relation("UserAssignments", fields: [createdById], references: [id])
+  /// Catálogo Departamento
+  departmentId Int?
+  /// Catálogo Plataforma
+  platformId   Int?
 
-  // Nueva relación con Collaborator
+  asset       Asset @relation("AssetAssignments", fields: [assetId], references: [id])
+  createdBy   User? @relation("UserAssignments", fields: [createdById], references: [id])
   collaborator Collaborator? @relation("CollaboratorAssignments", fields: [collaboratorId], references: [id])
+
+  department Department? @relation(fields: [departmentId], references: [id])
+  platform   Platform?   @relation(fields: [platformId], references: [id])
 
   @@index([assetId])
   @@index([collaboratorId])
+  @@index([departmentId])
+  @@index([platformId])
+}
+
+/// ===================== Asignaciones manuales (sin número de colaborador) =====================
+
+model ManualAssignment {
+  id                Int     @id @default(autoincrement())
+  assetId           Int
+  collaboratorName  String
+  collaboratorEmail String?
+  direction         String?
+  department        String?
+  hotel             String?
+  description       String?
+
+  /// Nombre de equipo (solo si aplica, CPU/LAPTOP)
+  teamName String?
+
+  /// Plataforma (solo si aplica, CPU/LAPTOP)
+  platformId Int?
+
+  status      AssignmentStatus @default(ASIGNADO)
+  assignedAt  DateTime         @default(now())
+  returnedAt  DateTime?
+  createdById Int?
+
+  asset     Asset     @relation("AssetManualAssignments", fields: [assetId], references: [id])
+  platform  Platform? @relation(fields: [platformId], references: [id])
+  createdBy User?     @relation("UserManualAssignments", fields: [createdById], references: [id])
+
+  @@index([assetId])
+  @@index([platformId])
+  @@index([status])
+}
+
+/// ===================== LOAN / PRÉSTAMOS =====================
+
+model Loan {
+  id                Int     @id @default(autoincrement())
+  collaboratorId    String
+  collaboratorName  String?
+  collaboratorEmail String?
+  departmentName    String?
+  address           String?
+
+  // ✅ Equipo prestado (ID/serial/etiqueta inventario)
+  // Ej: "LAP-000001 · POIUHGVBN8"
+  teamName          String
+
+  // ✅ Nombre de equipo (solo CPU/LAP)
+  // Ej: "PFUNDACIONZM2"
+  deviceName        String?
+
+  hotelId   Int?
+  hotel     Hotel?  @relation("LoanHotel", fields: [hotelId], references: [id])
+
+  hotelName String? // opcional (snapshot)
+
+  platformId Int?
+  platform   Platform? @relation(fields: [platformId], references: [id])
+
+  comments  String?
+  startDate DateTime
+  endDate   DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([collaboratorId])
+  @@index([hotelId])
+  @@index([platformId])
+  @@index([startDate])
 }
 
 /// ===================== Disposal / BAJAS  =====================
 
 model Disposal {
-  id          Int      @id @default(autoincrement())
-  assetId     Int
-  reason      String
-  notes       String?
-  evidenceUrl String?
-  disposedAt  DateTime @default(now())
-  createdById Int?
+  id            Int       @id @default(autoincrement())
+  assetId       Int
+  hotelId       Int?      // Hotel del equipo al momento de la baja
+  reason        String
+  notes         String?
+  evidenceUrl   String?   // Legacy: single URL (para compatibilidad)
+  disposedAt    DateTime  @default(now())
+  createdById   Int?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  restoredAt    DateTime? // Fecha de restauración a ALTA
+  restoredById  Int?      // Usuario que restauró
 
-  asset     Asset @relation("AssetDisposals", fields: [assetId], references: [id])
-  createdBy User? @relation("UserDisposals", fields: [createdById], references: [id])
+  asset       Asset    @relation("AssetDisposals", fields: [assetId], references: [id])
+  hotel       Hotel?   @relation("HotelDisposals", fields: [hotelId], references: [id])
+  createdBy   User?    @relation("UserDisposals", fields: [createdById], references: [id])
+  restoredBy  User?    @relation("UserRestoredDisposals", fields: [restoredById], references: [id])
+  evidences   DisposalEvidence[]
 
   @@index([assetId])
+  @@index([hotelId])
+}
+
+model DisposalEvidence {
+  id          Int      @id @default(autoincrement())
+  disposalId  Int
+  url         String
+  filename    String?
+  mime        String?
+  size        Int?
+  createdAt   DateTime @default(now())
+
+  disposal    Disposal @relation(fields: [disposalId], references: [id], onDelete: Cascade)
+
+  @@index([disposalId])
 }
 
 /// ===================== Autenticación / Roles =====================
@@ -202,23 +341,25 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  hotels             UserHotel[]
-  createdAssignments Assignment[] @relation("UserAssignments")
-  createdDisposals   Disposal[]   @relation("UserDisposals")
+  hotels                   UserHotel[]
+  createdAssignments       Assignment[]       @relation("UserAssignments")
+  createdManualAssignments ManualAssignment[] @relation("UserManualAssignments")
+  createdDisposals         Disposal[]         @relation("UserDisposals")
+  restoredDisposals        Disposal[]         @relation("UserRestoredDisposals")
 }
 
 model Collaborator {
-  /// EMPLID (PeopleSoft)
   id       String  @id
   name     String
   phone    String?
   email    String?
   jobTitle String?
 
+  teamName String? @unique
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  //Backref de asignaciones
   assignments Assignment[] @relation("CollaboratorAssignments")
 }
 
@@ -276,12 +417,17 @@ model tipo_equipo {
 
 /// ===================== Enums =====================
 
-/// Estados saludables para inventario (sin borrar en duro)
 enum EquipmentStatus {
   ALTA
   ASIGNADO
   TRANSFERENCIA_PENDIENTE
   BAJA
+}
+
+enum TransferStatus {
+  PENDING
+  COMPLETED
+  CANCELED
 }
 
 enum UserStatus {
@@ -293,4 +439,30 @@ enum Role {
   ADMIN
   ALMACEN
   INGENIERO
+}
+
+/// ===================== Asset Transfers =====================
+model AssetTransfer {
+  id              Int            @id @default(autoincrement())
+  assetId         Int
+  originHotelId   Int
+  destHotelId     Int
+  status          TransferStatus @default(PENDING)
+
+  createdByUserId   Int
+  acceptedByUserId  Int?
+  canceledByUserId  Int?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  acceptedAt  DateTime?
+  canceledAt  DateTime?
+
+  asset       Asset @relation(fields: [assetId], references: [id])
+  originHotel Hotel @relation("TransferOrigin", fields: [originHotelId], references: [id])
+  destHotel   Hotel @relation("TransferDest", fields: [destHotelId], references: [id])
+
+  @@index([assetId, status])
+  @@index([destHotelId, status])
+  @@index([originHotelId, status])
 }

@@ -1,13 +1,16 @@
 // src/app/api/admin/users/[id]/route.ts
 export const runtime = "nodejs";
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { withError, http } from "@/server/utils/withError";
 import { usersService } from "@/server/modules/users/service";
 import { UpdateUserDTO } from "@/server/dto/users";
+import { requireAuth, ensureRole } from "@/server/guards/auth";
 import bcrypt from "bcryptjs";
 
 const BCRYPT_ROUNDS = Number(process.env.AUTH_BCRYPT_ROUNDS ?? 10);
+
+type RouteParams = { params: Promise<{ id: string }> };
 
 function parseId(raw: string) {
   const id = Number(raw);
@@ -15,24 +18,31 @@ function parseId(raw: string) {
   return id;
 }
 
-// Opcional auth:
-// import { requireAuth, ensureRole } from "@/server/guards/auth";
+// ✅ GET: Obtener usuario (solo ADMIN)
+export const GET = withError(async (req: NextRequest, { params }: RouteParams) => {
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.res;
 
-export const GET = withError(async (_req, { params }: { params: { id: string } }) => {
-  // const auth = await requireAuth(_req); if (!auth.ok) return auth.res;
-  // const deny = ensureRole(auth.data, "ADMIN"); if (deny) return deny;
+  const deny = ensureRole(auth.data, "ADMIN");
+  if (deny) return deny;
 
-  const id = parseId(params.id);
+  const { id: rawId } = await params;
+  const id = parseId(rawId);
   const user = await usersService.getById(id);
   if (!user) throw http.notFound("Usuario no encontrado");
   return NextResponse.json(user);
 });
 
-export const PUT = withError(async (req, { params }: { params: { id: string } }) => {
-  // const auth = await requireAuth(req); if (!auth.ok) return auth.res;
-  // const deny = ensureRole(auth.data, "ADMIN"); if (deny) return deny;
+// ✅ PUT: Actualizar usuario (solo ADMIN)
+export const PUT = withError(async (req: NextRequest, { params }: RouteParams) => {
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.res;
 
-  const id = parseId(params.id);
+  const deny = ensureRole(auth.data, "ADMIN");
+  if (deny) return deny;
+
+  const { id: rawId } = await params;
+  const id = parseId(rawId);
   const body = await req.json();
   const data = UpdateUserDTO.parse(body);
 
@@ -64,11 +74,16 @@ export const PUT = withError(async (req, { params }: { params: { id: string } })
   }
 });
 
-export const DELETE = withError(async (_req, { params }: { params: { id: string } }) => {
-  // const auth = await requireAuth(_req); if (!auth.ok) return auth.res;
-  // const deny = ensureRole(auth.data, "ADMIN"); if (deny) return deny;
+// ✅ DELETE: Eliminar usuario (solo ADMIN)
+export const DELETE = withError(async (req: NextRequest, { params }: RouteParams) => {
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.res;
 
-  const id = parseId(params.id);
+  const deny = ensureRole(auth.data, "ADMIN");
+  if (deny) return deny;
+
+  const { id: rawId } = await params;
+  const id = parseId(rawId);
   try {
     await usersService.delete(id);
     return new NextResponse(null, { status: 204 });

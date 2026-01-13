@@ -1,28 +1,34 @@
 // src/app/api/admin/users/route.ts
 export const runtime = "nodejs";
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { withError } from "@/server/utils/withError";
 import { usersService } from "@/server/modules/users/service";
 import { CreateUserDTO } from "@/server/dto/users";
+import { requireAuth, ensureRole } from "@/server/guards/auth";
 import bcrypt from "bcryptjs";
 
 const BCRYPT_ROUNDS = Number(process.env.AUTH_BCRYPT_ROUNDS ?? 10);
 
-// Opcional auth:
-// import { requireAuth, ensureRole } from "@/server/guards/auth";
+// ✅ GET: Listar usuarios (solo ADMIN)
+export const GET = withError(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.res;
 
-export const GET = withError(async () => {
-  // const auth = await requireAuth(req); if (!auth.ok) return auth.res;
-  // const deny = ensureRole(auth.data, "ADMIN"); if (deny) return deny;
+  const deny = ensureRole(auth.data, "ADMIN");
+  if (deny) return deny;
 
   const items = await usersService.listAll();
   return NextResponse.json({ items });
 });
 
-export const POST = withError(async (req) => {
-  // const auth = await requireAuth(req); if (!auth.ok) return auth.res;
-  // const deny = ensureRole(auth.data, "ADMIN"); if (deny) return deny;
+// ✅ POST: Crear usuario (solo ADMIN)
+export const POST = withError(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.res;
+
+  const deny = ensureRole(auth.data, "ADMIN");
+  if (deny) return deny;
 
   const body = await req.json();
   const parsed = CreateUserDTO.parse(body);

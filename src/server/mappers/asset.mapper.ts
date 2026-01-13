@@ -2,6 +2,7 @@
 
 import type { ExternalAsset } from "@/server/integrations/assetsApi";
 import type { ExternalCollaborator } from "@/server/integrations/collabApi";
+import type { EquipmentStatus } from "@prisma/client";
 
 /** Estructura objetivo sugerida (ajusta a tu Prisma/DTO real) */
 export type AssetData = {
@@ -10,7 +11,7 @@ export type AssetData = {
   model: string | null;
   serial: string | null;
   purchasedAt: Date | null;
-  // TODO: agrega status si mapeas a enum local
+  status: EquipmentStatus;
 };
 
 export type CollaboratorData = {
@@ -27,6 +28,19 @@ function parseISOorNull(iso?: string | null): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function mapStatus(status?: string | null): EquipmentStatus {
+  if (!status) return "ALTA";
+  const normalized = status.trim().toUpperCase().replace(/\s+/g, "_");
+  return (
+    {
+      ALTA: "ALTA",
+      ASIGNADO: "ASIGNADO",
+      TRANSFERENCIA_PENDIENTE: "TRANSFERENCIA_PENDIENTE",
+      BAJA: "BAJA",
+    }[normalized] ?? "ALTA"
+  );
+}
+
 export function mapExternalToAssetData(x: ExternalAsset): AssetData {
   return {
     assetCode: x.code,
@@ -34,6 +48,7 @@ export function mapExternalToAssetData(x: ExternalAsset): AssetData {
     model: x.model ?? null,
     serial: x.serial ?? null,
     purchasedAt: parseISOorNull(x.purchasedAt),
+    status: mapStatus(x.status),
   };
 }
 

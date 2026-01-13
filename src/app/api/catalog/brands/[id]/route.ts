@@ -1,48 +1,109 @@
-// src/app/api/catalog/brands/[id]/route.ts
+// src/app/api/loans/[id]/route.ts
 export const runtime = "nodejs";
 
-import { NextResponse } from "next/server";
-import { withError, http } from "@/server/utils/withError";
-import { BrandsOrchestrator } from "@/server/modules/brands/orchestrator";
-import { pickBrandName } from "@/server/dto/brands";
-import { emit } from "@/server/utils/events";
+import { NextRequest, NextResponse } from "next/server";
+import { withError } from "@/server/utils/withError";
+import { prisma } from "@/lib/db";
+import { z } from "zod";
 
-function parseId(raw: string): number {
-  const id = Number(raw);
-  if (!Number.isFinite(id)) throw http.badRequest("id inválido");
+const UpdateLoanSchema = z
+  .object({
+    collaboratorId: z.string().min(1).optional(),
+    collaboratorName: z.string().nullable().optional(),
+    collaboratorEmail: z.string().nullable().optional(),
+    departmentName: z.string().nullable().optional(),
+    address: z.string().nullable().optional(),
+    teamName: z.string().min(1).optional(),
+    platformId: z.number().int().positive().nullable().optional(),
+    comments: z.string().nullable().optional(),
+    startDate: z.string().min(1).optional(),
+    endDate: z.string().min(1).optional(),
+  })
+  .partial();
+
+function getIdFromRequest(req: NextRequest): number {
+  const segments = req.nextUrl.pathname.split("/");
+  const last = segments[segments.length - 1] ?? "";
+  const id = Number.parseInt(last, 10);
+  if (!Number.isFinite(id)) {
+    throw new Error("ID de préstamo inválido.");
+  }
   return id;
 }
 
-// 👇 Tipo de contexto que soporta objeto o Promise (Next 16)
-type BrandRouteContext = {
-  params: { id: string } | Promise<{ id: string }>;
-};
+// GET /api/loans/:id
+export const GET = withError(async (req: NextRequest) => {
+  const id = getIdFromRequest(req);
 
-export const PUT = withError(
-  async (req: Request, ctx: BrandRouteContext) => {
-    // 👇 Desestructuramos esperando la Promise si es necesario
-    const { id: rawId } = await ctx.params;
-    const id = parseId(rawId);
+  const loan = await prisma.loan.findUnique({
+    where: { id },
+    include: { platform: true },
+  });
 
-    const body = await req.json();
-    const nombre = pickBrandName(body);
+  if (!loan) {
+    return new NextResponse("Préstamo no encontrado.", { status: 404 });
+  }
 
-    await BrandsOrchestrator.update(id, nombre);
-    emit("catalogo_marcas", { tipo: "EDITADA", id });
+  return NextResponse.json({
+    id: loan.id,
+    collaboratorId: loan.collaboratorId,
+    collaboratorName: loan.collaboratorName,
+    collaboratorEmail: loan.collaboratorEmail,
+    departmentName: loan.departmentName,
+    address: loan.address,
+    teamName: loan.teamName,
+    platformId: loan.platformId,
+    platformName: loan.platform?.name ?? null,
+    comments: loan.comments,
+    startDate: loan.startDate,
+    endDate: loan.endDate,
+    createdAt: loan.createdAt,
+    updatedAt: loan.updatedAt,
+  });
+});
 
-    return NextResponse.json({ success: true });
-  },
-);
+// PATCH /api/loans/:id
+export const PATCH = withError(async (req: NextRequest) => {
+  const id = getIdFromRequest(req);
+  const json = await req.json();
+  const parsed = UpdateLoanSchema.parse(json);
 
-export const DELETE = withError(
-  async (_req: Request, ctx: BrandRouteContext) => {
-    // 👇 Igual aquí
-    const { id: rawId } = await ctx.params;
-    const id = parseId(rawId);
+  const data: any = { ...parsed };
 
-    await BrandsOrchestrator.remove(id);
-    emit("catalogo_marcas", { tipo: "ELIMINADA", id_marca: id });
+  if (parsed.startDate) data.startDate = new Date(parsed.startDate);
+  if (parsed.endDate) data.endDate = new Date(parsed.endDate);
 
-    return NextResponse.json({ success: true });
-  },
-);
+  const loan = await prisma.loan.update({
+    where: { id },
+    data,
+    include: { platform: true },
+  });
+
+  return NextResponse.json({
+    id: loan.id,
+    collaboratorId: loan.collaboratorId,
+    collaboratorName: loan.collaboratorName,
+    collaboratorEmail: loan.collaboratorEmail,
+    departmentName: loan.departmentName,
+    address: loan.address,
+    teamName: loan.teamName,
+    platformId: loan.platformId,
+    platformName: loan.platform?.name ?? null,
+    comments: loan.comments,
+    startDate: loan.startDate,
+    endDate: loan.endDate,
+    createdAt: loan.createdAt,
+    updatedAt: loan.updatedAt,
+  });
+});
+
+// DELETE /api/loans/:id
+export const DELETE = withError(async (req: NextRequest) => {
+  const id = getIdFromRequest(req);
+
+  await prisma.loan.delete({
+    where: { id },
+  });
+
+  return NextResponse.json({ ok: true });
+});

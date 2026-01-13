@@ -2,20 +2,53 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { withError, http } from "@/server/utils/withError";
+import { withError } from "@/server/utils/withError";
 import * as svc from "@/server/modules/collaborators/service";
-import { UpdateCollaboratorDTO } from "@/server/dto/collaborators";
+// import { requireAuth, ensureRole } from "@/server/guards/auth";
 
-export const GET = withError(async (_req, { params }: { params: { id: string } }) => {
-  const item = await svc.get(params.id);
-  if (!item) throw http.notFound("Not found");
-  return NextResponse.json({ collaborator: item });
+type ParamsContext = {
+  params: Promise<{ id: string }>;
+};
+
+export const GET = withError(async (req, context: ParamsContext) => {
+  const { id } = await context.params;
+
+  const collaborator = await svc.getById(id);
+
+  if (!collaborator) {
+    return NextResponse.json(
+      { error: "Colaborador no encontrado" },
+      { status: 404 },
+    );
+  }
+
+  return NextResponse.json(collaborator);
 });
 
-export const PATCH = withError(async (req, { params }: { params: { id: string } }) => {
-  const body = await req.json();
-  const data = UpdateCollaboratorDTO.parse(body);
-  const item = await svc.update(params.id, data);
-  if (!item) throw http.notFound("Not found");
-  return NextResponse.json({ collaborator: item });
-});
+// Actualizar datos básicos de un colaborador
+export const PATCH = withError(
+  async (req: Request, context: ParamsContext) => {
+    const { id } = await context.params;
+    const body = await req.json();
+
+    const updated = await svc.ensureCollaborator(id, {
+      name: body.name,
+      email: body.email,
+      phone: body.phone,
+      jobTitle: body.jobTitle,
+    });
+
+    return NextResponse.json(updated);
+  },
+);
+
+// Eliminar colaborador (si no tiene asignaciones)
+export const DELETE = withError(
+  async (req: Request, context: ParamsContext) => {
+    const { id } = await context.params;
+
+    await svc.remove(id);
+
+    return NextResponse.json({ ok: true });
+  },
+);

@@ -1,10 +1,13 @@
 // src/app/api/admin/hotels/[id]/route.ts
 export const runtime = "nodejs";
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { withError, http } from "@/server/utils/withError";
 import { hotelsService } from "@/server/modules/hotels/service";
 import { UpdateHotelDTO } from "@/server/dto/hotels";
+import { requireAuth, ensureRole } from "@/server/guards/auth";
+
+type RouteParams = { params: Promise<{ id: string }> };
 
 function parseId(raw: string) {
   const id = Number(raw);
@@ -12,15 +15,31 @@ function parseId(raw: string) {
   return id;
 }
 
-export const GET = withError(async (_req, { params }: { params: { id: string } }) => {
-  const id = parseId(params.id);
+// ✅ GET: Obtener hotel (solo ADMIN)
+export const GET = withError(async (req: NextRequest, { params }: RouteParams) => {
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.res;
+
+  const deny = ensureRole(auth.data, "ADMIN");
+  if (deny) return deny;
+
+  const { id: rawId } = await params;
+  const id = parseId(rawId);
   const hotel = await hotelsService.getById(id);
   if (!hotel) throw http.notFound("Hotel no encontrado");
   return NextResponse.json(hotel);
 });
 
-export const PUT = withError(async (req, { params }: { params: { id: string } }) => {
-  const id = parseId(params.id);
+// ✅ PUT: Actualizar hotel (solo ADMIN)
+export const PUT = withError(async (req: NextRequest, { params }: RouteParams) => {
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.res;
+
+  const deny = ensureRole(auth.data, "ADMIN");
+  if (deny) return deny;
+
+  const { id: rawId } = await params;
+  const id = parseId(rawId);
   const body = await req.json();
   const data = UpdateHotelDTO.parse(body);
 
@@ -41,8 +60,16 @@ export const PUT = withError(async (req, { params }: { params: { id: string } })
   }
 });
 
-export const DELETE = withError(async (_req, { params }: { params: { id: string } }) => {
-  const id = parseId(params.id);
+// ✅ DELETE: Eliminar hotel (solo ADMIN)
+export const DELETE = withError(async (req: NextRequest, { params }: RouteParams) => {
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.res;
+
+  const deny = ensureRole(auth.data, "ADMIN");
+  if (deny) return deny;
+
+  const { id: rawId } = await params;
+  const id = parseId(rawId);
   try {
     await hotelsService.delete(id);
     return new NextResponse(null, { status: 204 });

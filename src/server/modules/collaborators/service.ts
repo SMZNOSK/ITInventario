@@ -1,144 +1,177 @@
 // src/server/modules/collaborators/service.ts
-import "server-only";
 import { prisma } from "@/lib/db";
-import type {
-  CreateCollaboratorInput,
-  UpdateCollaboratorInput,
-  CollaboratorInput,
+import {
+  CreateCollaboratorDTO,
+  CollaboratorDTO,
 } from "@/server/dto/collaborators";
 
-export type Collaborator = {
-  // Campos legacy que ya usabas en el frontend
-  id: string;               // EMPLID
-  numColaborador: string;   // alias de id
-  nombre: string;           // alias de name
+/**
+ * Normaliza el EMPLID / número de colaborador.
+ */
+function normalizeId(raw: string): string {
+  return raw.trim();
+}
 
-  // Campos nuevos / enriquecidos
-  departamento?: string;    // alias de jobTitle
-  phone?: string;
-  email?: string;
-  jobTitle?: string;
+/**
+ * Payload básico que usaremos para asegurar/crear/actualizar un colaborador.
+ */
+type EnsureInput = {
+  id: string;
+  name?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  jobTitle?: string | null;
 };
 
-function mapRow(row: any): Collaborator {
-  return {
-    id: row.id,
-    numColaborador: row.id,
-    nombre: row.name,
-    departamento: row.jobTitle ?? undefined,
-    phone: row.phone ?? undefined,
-    email: row.email ?? undefined,
-    jobTitle: row.jobTitle ?? undefined,
+/**
+ * Normaliza la firma de argumentos para permitir:
+ *  - ensureCollaborator("098075", { name: "Juan" })
+ *  - ensureCollaborator({ id: "098075", name: "Juan" })
+ */
+function normalizeEnsureArgs(
+  idOrPayload: string | EnsureInput,
+  data?: Omit<EnsureInput, "id">,
+): EnsureInput {
+  if (typeof idOrPayload === "string") {
+    return { id: idOrPayload, ...(data ?? {}) };
+  }
+  return idOrPayload;
+}
+
+/**
+ * Asegura que exista un registro de Collaborator con ese id.
+ * Si ya existe, actualiza datos básicos (nombre, teléfono, etc.),
+ * si no existe, lo crea.
+ *
+ * Esta función es la que usa Asignaciones al crear una asignación.
+ */
+export async function ensureCollaborator(
+  idOrPayload: string | EnsureInput,
+  data?: Omit<EnsureInput, "id">,
+): Promise<CollaboratorDTO> {
+  const payload = normalizeEnsureArgs(idOrPayload, data);
+  const id = normalizeId(payload.id);
+
+  if (!id) {
+    throw new Error("Debes indicar el número de colaborador.");
+  }
+
+  const existing = await prisma.collaborator.findUnique({
+    where: { id },
+  });
+
+  const name =
+    (payload.name ?? existing?.name ?? "").trim() || "SIN NOMBRE";
+
+  const merged = {
+    name,
+    phone: payload.phone ?? existing?.phone ?? null,
+    email: payload.email ?? existing?.email ?? null,
+    jobTitle: payload.jobTitle ?? existing?.jobTitle ?? null,
   };
-}
 
-/* ========= Listado ========= */
+  if (existing) {
+    const hasChanges =
+      merged.name !== existing.name ||
+      merged.phone !== existing.phone ||
+      merged.email !== existing.email ||
+      merged.jobTitle !== existing.jobTitle;
 
-export async function list(q?: string): Promise<Collaborator[]> {
-  try {
-    const where =
-      q && q.trim().length > 0
-        ? {
-            OR: [
-              { id: { contains: q.trim(), mode: "insensitive" as const } },
-              { name: { contains: q.trim(), mode: "insensitive" as const } },
-              { email: { contains: q.trim(), mode: "insensitive" as const } },
-            ],
-          }
-        : {};
+    if (!hasChanges) {
+      return existing as unknown as CollaboratorDTO;
+    }
 
-    const rows = await prisma.collaborator.findMany({
-      where,
-      orderBy: { name: "asc" },
-    });
-
-    return rows.map(mapRow);
-  } catch (err) {
-    console.error("[collaborators:list] Error:", err);
-    throw { status: 500, message: "Error al listar colaboradores" };
-  }
-}
-
-/* ========= Crear (para compatibilidad) ========= */
-
-export async function create(data: CreateCollaboratorInput): Promise<Collaborator> {
-  // CreateCollaboratorInput y CollaboratorInput hoy son equivalentes,
-  // así que reutilizamos la misma lógica de upsert.
-  return upsert(data);
-}
-
-/* ========= Obtener uno ========= */
-
-export async function get(id: string): Promise<Collaborator | null> {
-  try {
-    const row = await prisma.collaborator.findUnique({
+    const updated = await prisma.collaborator.update({
       where: { id },
+      data: merged,
     });
-    if (!row) return null;
-    return mapRow(row);
-  } catch (err) {
-    console.error("[collaborators:get] Error:", err);
-    throw { status: 500, message: "Error al obtener colaborador" };
+
+    return updated as unknown as CollaboratorDTO;
   }
+
+  const created = await prisma.collaborator.create({
+    data: {
+      id,
+      ...merged,
+    },
+  });
+
+  return created as unknown as CollaboratorDTO;
 }
 
-/* ========= Actualizar (para compatibilidad) ========= */
+/**
+ * Listado simple de colaboradores (para futuras UIs).
+ */
+export async function list(): Promise<CollaboratorDTO[]> {
+  const rows = await prisma.collaborator.findMany({
+    orderBy: { id: "asc" },
+  });
 
-export async function update(
-  id: string,
-  data: UpdateCollaboratorInput
-): Promise<Collaborator | null> {
-  try {
-    const existing = await prisma.collaborator.findUnique({ where: { id } });
-    if (!existing) return null;
-
-    // Evitamos cambiar el PK; ignoramos collabId si viene distinto
-    const { collabId: _ignored, ...rest } = data;
-
-    const updateData: any = {};
-    if (rest.name !== undefined) updateData.name = rest.name;
-    if (rest.phone !== undefined) updateData.phone = rest.phone;
-    if (rest.email !== undefined) updateData.email = rest.email;
-    if (rest.jobTitle !== undefined) updateData.jobTitle = rest.jobTitle;
-
-    const row = await prisma.collaborator.update({
-      where: { id },
-      data: updateData,
-    });
-
-    return mapRow(row);
-  } catch (err) {
-    console.error("[collaborators:update] Error:", err);
-    throw { status: 500, message: "Error al actualizar colaborador" };
-  }
+  return rows as unknown as CollaboratorDTO[];
 }
 
-/* ========= Upsert (nuevo flujo principal) ========= */
+/**
+ * Creación directa desde el endpoint /api/collaborators.
+ * Si el id ya existe, actualiza usando ensureCollaborator.
+ */
+export async function create(
+  dto: CreateCollaboratorDTO,
+): Promise<CollaboratorDTO> {
+  const collaborator = await ensureCollaborator(dto.id, {
+    name: dto.name,
+    phone: dto.phone,
+    email: dto.email,
+    jobTitle: dto.jobTitle,
+  });
 
-export async function upsert(
-  data: CollaboratorInput
-): Promise<Collaborator> {
+  return collaborator;
+}
+
+/**
+ * Obtener un colaborador por id (usado por /api/collaborators/[id]).
+ */
+export async function getById(id: string): Promise<CollaboratorDTO | null> {
+  const normalized = normalizeId(id);
+
+  if (!normalized) return null;
+
+  const collaborator = await prisma.collaborator.findUnique({
+    where: { id: normalized },
+  });
+
+  return collaborator as unknown as CollaboratorDTO | null;
+}
+
+/**
+ * Pensado para integraciones externas (PeopleSoft, etc.).
+ * Puedes llamarlo pasando los datos que vengan de la API externa.
+ */
+export async function syncFromExternal(
+  payload: EnsureInput,
+): Promise<CollaboratorDTO> {
+  return ensureCollaborator(payload);
+}
+
+/**
+ * Eliminar colaborador. Si tiene asignaciones, lanza un error entendible.
+ */
+export async function remove(id: string): Promise<void> {
+  const normalized = normalizeId(id);
+  if (!normalized) {
+    throw new Error("ID de colaborador inválido.");
+  }
+
   try {
-    const row = await prisma.collaborator.upsert({
-      where: { id: data.collabId },
-      create: {
-        id: data.collabId,
-        name: data.name,
-        phone: data.phone ?? null,
-        email: data.email ?? null,
-        jobTitle: data.jobTitle ?? null,
-      },
-      update: {
-        name: data.name,
-        phone: data.phone ?? null,
-        email: data.email ?? null,
-        jobTitle: data.jobTitle ?? null,
-      },
+    await prisma.collaborator.delete({
+      where: { id: normalized },
     });
-
-    return mapRow(row);
-  } catch (err) {
-    console.error("[collaborators:upsert] Error:", err);
-    throw { status: 500, message: "Error al guardar colaborador" };
+  } catch (err: any) {
+    // Restricción de FK: colaborador con asignaciones
+    if (err?.code === "P2003") {
+      throw new Error(
+        "No se puede eliminar el colaborador porque tiene asignaciones registradas.",
+      );
+    }
+    throw err;
   }
 }

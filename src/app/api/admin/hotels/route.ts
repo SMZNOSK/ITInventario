@@ -1,17 +1,32 @@
 // src/app/api/admin/hotels/route.ts
 export const runtime = "nodejs";
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { withError } from "@/server/utils/withError";
 import { hotelsService } from "@/server/modules/hotels/service";
 import { CreateHotelDTO } from "@/server/dto/hotels";
+import { requireAuth, ensureRole } from "@/server/guards/auth";
 
-export const GET = withError(async () => {
+// ✅ GET: Listar hoteles (solo ADMIN)
+export const GET = withError(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.res;
+
+  const deny = ensureRole(auth.data, "ADMIN");
+  if (deny) return deny;
+
   const items = await hotelsService.listAll();
   return NextResponse.json({ items });
 });
 
-export const POST = withError(async (req) => {
+// ✅ POST: Crear hotel (solo ADMIN)
+export const POST = withError(async (req: NextRequest) => {
+  const auth = await requireAuth(req);
+  if (!auth.ok) return auth.res;
+
+  const deny = ensureRole(auth.data, "ADMIN");
+  if (deny) return deny;
+
   const body = await req.json();
   const data = CreateHotelDTO.parse(body);
   try {
@@ -24,6 +39,6 @@ export const POST = withError(async (req) => {
         { status: 409 }
       );
     }
-    throw err; // lo atrapará withError
+    throw err;
   }
 });

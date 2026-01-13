@@ -9,8 +9,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
+      {/* Header - full width */}
       <header className="sticky top-0 z-10 border-b bg-white/70 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between py-3 px-4">
+        <div className="flex items-center justify-between py-3 px-6">
           <div className="text-lg font-semibold">Inventario TI</div>
           {user && (
             <div className="flex items-center gap-3 text-sm">
@@ -25,9 +26,15 @@ export default function AppShell({ children }: { children: ReactNode }) {
         </div>
       </header>
 
-      <div className="mx-auto flex max-w-6xl gap-6 px-4 py-6">
+      {/* Main layout - sidebar fixed left, content flexible */}
+      <div className="flex">
+        {/* Sidebar - fixed width, aligned to left */}
         <Sidebar />
-        <main className="min-h-[70vh] flex-1">{children}</main>
+
+        {/* Main content */}
+        <main className="min-h-[calc(100vh-57px)] flex-1 overflow-auto">
+          {children}
+        </main>
       </div>
     </div>
   );

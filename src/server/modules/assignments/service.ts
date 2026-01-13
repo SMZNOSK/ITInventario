@@ -1,191 +1,544 @@
 // src/server/modules/assignments/service.ts
-import "server-only";
 import { prisma } from "@/lib/db";
-import type { AssignInput } from "@/server/dto/assignments";
+import type {
+  CreateAssignmentInput,
+  UpdateAssignmentInput,
+  CreateManualAssignmentInput,
+} from "@/server/dto/assignments";
+import { ensureCollaborator } from "@/server/modules/collaborators/service";
 
-export type AssignmentListItem = {
-  id: string;
-  assetSerial: string;
-  collaboratorId: string;
-  collaboratorName: string;
-  status: "ASIGNADO" | "DEVUELTO";
-  assignedAt: Date;
-  returnedAt?: Date;
-};
+/* ========= Helpers comunes ========= */
 
-/* ========= Helpers ========= */
+function safeText(v: any): string {
+  return (v ?? "").toString().trim();
+}
 
-function mapRowToListItem(row: {
-  id: number;
-  collaboratorId: string;
-  collaboratorName: string | null;
-  status: "ASIGNADO" | "DEVUELTO";
-  assignedAt: Date;
-  returnedAt: Date | null;
-  asset: { serial: string };
-}): AssignmentListItem {
+function normalizeAssetCode(raw: string): string {
+  return safeText(raw);
+}
+
+/** Soporta "13", "000013", "LAP-000013", "CPU-1" → 13/1 */
+function parseIdFromMaybeCode(raw: string): number | null {
+  const s = safeText(raw);
+  if (!s) return null;
+
+  // puro número
+  if (/^\d+$/.test(s)) {
+    const n = Number(s);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  // formato PREFIX-000013 (o cualquier cosa-000013)
+  const m = s.match(/-(\d+)\s*$/);
+  if (m?.[1]) {
+    const n = Number(m[1]);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  return null;
+}
+
+/**
+ * Resuelve un Asset a partir de:
+ * - ID directo: "13"
+ * - Código UI: "RAD-000001" (NO existe columna "code" en BD; se parsea el ID)
+ * - Serial: "ABC123..."
+ */
+async function findAssetByCode(codeOrSerialOrId: string) {
+  const trimmed = normalizeAssetCode(codeOrSerialOrId);
+  if (!trimmed) {
+    throw new Error("Debes indicar el ID, serial o código del equipo.");
+  }
+
+  // 1) Por id numérico directo o derivado de "RAD-000001"
+  const idFromCode = parseIdFromMaybeCode(trimmed);
+  if (idFromCode != null) {
+    const byId = await prisma.asset.findUnique({ where: { id: idFromCode } });
+    if (byId) return byId;
+  }
+
+  // 2) Por serial exacto (si serial es unique, findUnique es ideal)
+  try {
+    const bySerialUnique = await prisma.asset.findUnique({
+      // si serial fuera nullable, Prisma igual soporta where por unique mientras sea string
+      // @ts-ignore
+      where: { serial: trimmed },
+    });
+    if (bySerialUnique) return bySerialUnique;
+  } catch {
+    // si el schema no permite findUnique por serial (poco probable), seguimos con findFirst
+  }
+
+  // 3) Por serial case-insensitive (más tolerante)
+  const bySerialCI = await prisma.asset.findFirst({
+    where: { serial: { equals: trimmed, mode: "insensitive" } },
+  });
+  if (bySerialCI) return bySerialCI;
+
+  throw new Error("No se encontró ningún equipo con ese ID, serial o código.");
+}
+
+function buildAssetLabel(asset: {
+  serial: string | null;
+  type?: { name: string } | null;
+  brand?: { name: string } | null;
+  model?: { name: string } | null;
+}) {
+  const parts: string[] = [];
+  if (asset.type?.name) parts.push(asset.type.name);
+  if (asset.brand?.name) parts.push(asset.brand.name);
+  if (asset.model?.name) parts.push(asset.model.name);
+
+  const serial = asset.serial ?? "SIN-SERIE";
+  const base = parts.join(" ");
+  return base ? `${base} (${serial})` : serial;
+}
+
+async function resolvePlatformIdFromInput(input: any): Promise<number | null> {
+  const rawId =
+    input?.platformId ?? input?.platformID ?? input?.platform_id ?? null;
+
+  if (rawId != null && rawId !== "") {
+    const n = Number(rawId);
+    if (Number.isFinite(n)) return n;
+  }
+
+  const rawName =
+    input?.platformName ?? input?.platform ?? input?.platformLabel ?? null;
+
+  if (rawName == null) return null;
+
+  if (typeof rawName === "number" && Number.isFinite(rawName)) {
+    return rawName;
+  }
+
+  const name = safeText(rawName);
+  if (!name) return null;
+
+  const maybeNum = Number(name);
+  if (Number.isFinite(maybeNum)) return maybeNum;
+
+  const found = await prisma.platform.findFirst({
+    where: { name: { equals: name, mode: "insensitive" } },
+    select: { id: true },
+  });
+
+  return found?.id ?? null;
+}
+
+function resolveHotelLabelFromInput(input: any): string | null {
+  const v = input?.hotelLabel ?? input?.hotelName ?? input?.hotel ?? null;
+  const s = safeText(v);
+  return s ? s : null;
+}
+
+/* ==================== Asignación normal ==================== */
+
+export async function create(input: CreateAssignmentInput) {
+  const collaboratorName =
+    safeText(input.collaboratorName) || safeText(input.collaboratorId);
+
+  // Resolver asset por id o por (serial/código derivado)
+  const asset =
+    input.assetId != null
+      ? await prisma.asset.findUnique({ where: { id: input.assetId } })
+      : await findAssetByCode(input.assetSerial ?? input.assetCode ?? "");
+
+  if (!asset) {
+    throw new Error("No se encontró el equipo a asignar.");
+  }
+
+  let collaborator = await ensureCollaborator(input.collaboratorId, {
+    name: collaboratorName,
+  });
+
+  const incomingTeamName =
+    input.teamName != null && safeText(input.teamName) !== ""
+      ? safeText(input.teamName)
+      : null;
+
+  if (!collaborator.teamName && incomingTeamName) {
+    collaborator = await prisma.collaborator.update({
+      where: { id: collaborator.id },
+      data: { teamName: incomingTeamName },
+    });
+  }
+
+  const assignment = await prisma.$transaction(async (tx) => {
+    const created = await tx.assignment.create({
+      data: {
+        assetId: asset.id,
+        collaboratorId: collaborator.id,
+        collaboratorName: collaborator.name,
+        departmentId: input.departmentId ?? null,
+        platformId: input.platformId ?? null,
+        status: "ASIGNADO",
+        assignedAt: new Date(),
+      },
+    });
+
+    await tx.asset.update({
+      where: { id: asset.id },
+      data: { status: "ASIGNADO" },
+    });
+
+    return created;
+  });
+
+  return assignment;
+}
+
+/* ==================== Listado normal ==================== */
+
+export async function list() {
+  const assignments = await prisma.assignment.findMany({
+    orderBy: { assignedAt: "desc" },
+    include: {
+      asset: {
+        include: {
+          currentHotel: true,
+          type: true,
+          brand: true,
+          model: true,
+        },
+      },
+      department: true,
+      platform: true,
+      collaborator: true,
+    },
+  });
+
+  return assignments.map((a) => ({
+    id: a.id,
+    collaboratorId: a.collaboratorId,
+    collaboratorName: a.collaboratorName,
+    hotelName: a.asset.currentHotel?.name ?? null,
+    departmentName: a.department?.name ?? null,
+    assetSerial: a.asset.serial,
+    assetLabel: buildAssetLabel(a.asset),
+    platformName: a.platform?.name ?? null,
+    status: a.status,
+    assignedAt: a.assignedAt,
+    returnedAt: a.returnedAt,
+    teamName: a.collaborator?.teamName ?? null,
+  }));
+}
+
+/* ========== Actualizar / eliminar / devolver (normal) ========== */
+
+export async function update(id: number, input: UpdateAssignmentInput) {
+  return prisma.assignment.update({
+    where: { id },
+    data: {
+      departmentId:
+        input.departmentId === undefined ? undefined : input.departmentId,
+      platformId:
+        input.platformId === undefined ? undefined : input.platformId,
+    },
+  });
+}
+
+export async function remove(id: number) {
+  const existing = await prisma.assignment.findUnique({
+    where: { id },
+    select: { id: true, status: true, assetId: true },
+  });
+
+  if (!existing) throw new Error("Asignación no encontrada.");
+
+  if (existing.status === "ASIGNADO") {
+    throw new Error(
+      "No puedes eliminar una asignación mientras el equipo siga asignado. Primero márcalo como devuelto.",
+    );
+  }
+
+  await prisma.assignment.delete({ where: { id } });
+}
+
+export async function markReturned(id: number) {
+  const existing = await prisma.assignment.findUnique({ where: { id } });
+  if (!existing) throw new Error("Asignación no encontrada");
+
+  await prisma.$transaction(async (tx) => {
+    await tx.assignment.update({
+      where: { id },
+      data: { status: "DEVUELTO", returnedAt: new Date() },
+    });
+
+    await tx.asset.update({
+      where: { id: existing.assetId },
+      data: { status: "ALTA" },
+    });
+  });
+}
+
+/* ========== Asignaciones MANUALES (sin número de colaborador) ========== */
+
+function normalizeManualStatus(s: any): "ASIGNADO" | "DEVUELTO" | null {
+  const v = safeText(s).toUpperCase();
+  if (v === "ASIGNADO") return "ASIGNADO";
+  if (v === "DEVUELTO") return "DEVUELTO";
+  return null;
+}
+
+async function mapManualItem(m: any, platformById?: Map<number, string>) {
+  const assetLabel = m.asset ? buildAssetLabel(m.asset as any) : null;
+  const serial = m.asset?.serial ?? null;
+
+  const hotelFromRow =
+    safeText(m.hotel) || safeText(m.hotelName) || safeText(m.hotelLabel);
+
+  const hotelFallback = safeText(m.asset?.currentHotel?.name);
+  const hotelResolved = hotelFromRow || hotelFallback || null;
+
+  const platformIdResolved =
+    m.platform?.id ?? (m.platformId != null ? Number(m.platformId) : null);
+
+  const platformNameResolved =
+    m.platform?.name ??
+    (platformIdResolved != null ? platformById?.get(platformIdResolved) : null) ??
+    null;
+
   return {
-    id: String(row.id),
-    assetSerial: row.asset?.serial ?? "",
-    collaboratorId: row.collaboratorId,
-    collaboratorName: row.collaboratorName ?? "",
-    status: row.status,
-    assignedAt: row.assignedAt,
-    returnedAt: row.returnedAt ?? undefined,
+    id: m.id,
+
+    collaboratorName: m.collaboratorName ?? null,
+    collaboratorEmail: m.collaboratorEmail ?? null,
+    direction: m.direction ?? null,
+    department: m.department ?? null,
+
+    hotel: hotelResolved,
+    hotelName: hotelResolved,
+    hotelLabel: hotelResolved,
+
+    teamName: m.teamName ?? null,
+
+    platformId: platformIdResolved,
+    platformName: platformNameResolved,
+
+    serial,
+    equipmentName: assetLabel,
+    equipmentLabel: assetLabel,
+
+    assetId: m.assetId,
+    assetSerial: serial,
+    assetLabel,
+
+    status: m.status ?? null,
+    assignedAt: m.assignedAt ?? null,
+    returnedAt: m.returnedAt ?? null,
+    createdAt: m.assignedAt ?? null,
+    notes: m.notes ?? m.description ?? null,
   };
 }
 
-/* ========= Listado ========= */
+// Crear asignación manual
+export async function createManual(input: CreateManualAssignmentInput) {
+  // input.assetCode viene desde UI (puede ser "RAD-000001" o serial o id)
+  const asset = await findAssetByCode((input as any).assetCode);
 
-export async function list(): Promise<AssignmentListItem[]> {
-  try {
-    const rows = await prisma.assignment.findMany({
-      include: { asset: true },
-      orderBy: { assignedAt: "desc" },
+  const resolvedPlatformId = await resolvePlatformIdFromInput(input as any);
+  const resolvedHotel = resolveHotelLabelFromInput(input as any);
+
+  const assignment = await prisma.$transaction(async (tx) => {
+    const created = await tx.manualAssignment.create({
+      data: {
+        assetId: asset.id,
+
+        collaboratorName: safeText((input as any).collaboratorName),
+        collaboratorEmail: safeText((input as any).collaboratorEmail) || null,
+
+        direction: safeText((input as any).direction) || null,
+        department: safeText((input as any).department) || null,
+
+        hotel: resolvedHotel,
+
+        teamName: safeText((input as any).teamName) || null,
+
+        platformId: resolvedPlatformId,
+
+        description: safeText((input as any).description) || null,
+
+        status: "ASIGNADO",
+        assignedAt: new Date(),
+      },
     });
 
-    return rows.map(mapRowToListItem);
-  } catch (err) {
-    console.error("[assignments:list] Error:", err);
-    throw { status: 500, message: "Error al listar asignaciones" };
-  }
+    await tx.asset.update({
+      where: { id: asset.id },
+      data: { status: "ASIGNADO" },
+    });
+
+    return created;
+  });
+
+  return assignment;
 }
 
-/* ========= Crear asignación ========= */
+// Listado manual
+export async function listManual() {
+  const items = await prisma.manualAssignment.findMany({
+    orderBy: { assignedAt: "desc" },
+    include: {
+      asset: {
+        select: {
+          id: true,
+          serial: true,
+          type: { select: { name: true } },
+          brand: { select: { name: true } },
+          model: { select: { name: true } },
+          currentHotel: { select: { name: true } } as any,
+        } as any,
+      },
+      platform: { select: { id: true, name: true } },
+    },
+  });
 
-export async function assign(data: AssignInput): Promise<AssignmentListItem> {
-  try {
-    return await prisma.$transaction(async (tx) => {
-      const rawAssetId = (data as any).assetId;
+  const missingPlatformIds = Array.from(
+    new Set(
+      items
+        .filter((m: any) => !m?.platform?.name && m?.platformId)
+        .map((m: any) => Number(m.platformId))
+        .filter((n: number) => Number.isFinite(n)),
+    ),
+  );
 
-      if (!rawAssetId && rawAssetId !== 0) {
-        throw { status: 400, message: "assetId es requerido" };
-      }
-
-      // 1) Intentar como ID numérico
-      let asset = null;
-      let numericAssetId: number | null = null;
-
-      const maybeNumber = Number(rawAssetId);
-      if (Number.isFinite(maybeNumber)) {
-        numericAssetId = maybeNumber;
-        asset = await tx.asset.findUnique({
-          where: { id: maybeNumber },
-        });
-      }
-
-      // 2) Si no se encontró por ID (o no era número), intentar por serial
-      if (!asset) {
-        asset = await tx.asset.findUnique({
-          where: { serial: String(rawAssetId) },
-        });
-        if (asset) {
-          numericAssetId = asset.id;
-        }
-      }
-
-      if (!asset || numericAssetId == null) {
-        throw { status: 404, message: "Asset not found" };
-      }
-
-      // 3) Validar estado del asset
-      if (asset.status === "BAJA") {
-        throw {
-          status: 409,
-          message: "El equipo está en BAJA y no se puede asignar",
-        };
-      }
-
-      // 4) Verificar que no haya asignación abierta
-      const open = await tx.assignment.findFirst({
-        where: {
-          assetId: numericAssetId,
-          status: "ASIGNADO",
-        },
-      });
-
-      if (open) {
-        throw { status: 409, message: "Asset already assigned (open)" };
-      }
-
-      // 5) Crear la asignación
-      const created = await tx.assignment.create({
-        data: {
-          assetId: numericAssetId,
-          collaboratorId: data.collaboratorId,
-          collaboratorName: (data as any).collaboratorName ?? null,
-          status: "ASIGNADO",
-          assignedAt: (data as any).startAt ?? new Date(),
-          createdById: (data as any).assignedBy ?? null,
-        },
-        include: { asset: true },
-      });
-
-      // 6) Actualizar estado del asset a ASIGNADO
-      await tx.asset.update({
-        where: { id: numericAssetId },
-        data: { status: "ASIGNADO" },
-      });
-
-      return mapRowToListItem(created);
+  const platformById = new Map<number, string>();
+  if (missingPlatformIds.length > 0) {
+    const plats = await prisma.platform.findMany({
+      where: { id: { in: missingPlatformIds } },
+      select: { id: true, name: true },
     });
-  } catch (err) {
-    console.error("[assignments:assign] Error:", err);
-    if (err && typeof err === "object" && "status" in (err as any)) {
-      throw err;
-    }
-    throw { status: 500, message: "Error al crear asignación" };
+    for (const p of plats) platformById.set(p.id, p.name);
   }
+
+  const out = [];
+  for (const m of items as any[]) out.push(await mapManualItem(m, platformById));
+  return out;
 }
 
-/* ========= Terminar asignación ========= */
+export async function getManual(id: number) {
+  const m = await prisma.manualAssignment.findUnique({
+    where: { id },
+    include: {
+      asset: {
+        select: {
+          id: true,
+          serial: true,
+          type: { select: { name: true } },
+          brand: { select: { name: true } },
+          model: { select: { name: true } },
+          currentHotel: { select: { name: true } } as any,
+        } as any,
+      },
+      platform: { select: { id: true, name: true } },
+    },
+  });
 
-export async function end(id: string): Promise<AssignmentListItem> {
-  try {
-    const numericId = Number(id);
-    if (!Number.isFinite(numericId)) {
-      throw { status: 400, message: "assignment id inválido" };
-    }
+  if (!m) throw new Error("Asignación manual no encontrada.");
+  return mapManualItem(m);
+}
 
-    const existing = await prisma.assignment.findUnique({
-      where: { id: numericId },
-      include: { asset: true },
-    });
+export async function updateManual(id: number, input: any) {
+  const existing = await prisma.manualAssignment.findUnique({
+    where: { id },
+    select: { id: true, status: true, assetId: true, returnedAt: true },
+  });
 
-    if (!existing) {
-      throw { status: 404, message: "Assignment not found" };
-    }
+  if (!existing) throw new Error("Asignación manual no encontrada.");
 
-    if (existing.status === "DEVUELTO") {
-      // Ya está devuelta → devolvemos tal cual
-      return mapRowToListItem(existing as any);
-    }
+  let nextStatus: "ASIGNADO" | "DEVUELTO" | null = null;
 
-    const updated = await prisma.$transaction(async (tx) => {
-      const updatedAssignment = await tx.assignment.update({
-        where: { id: numericId },
-        data: {
-          status: "DEVUELTO",
-          returnedAt: new Date(),
-        },
-        include: { asset: true },
-      });
+  if (input?.markReturned === true) nextStatus = "DEVUELTO";
+  if (input?.status != null) {
+    const s = normalizeManualStatus(input.status);
+    if (s) nextStatus = s;
+  }
 
-      // Devolver el equipo a ALTA
+  const hotelTouched =
+    "hotel" in (input ?? {}) ||
+    "hotelName" in (input ?? {}) ||
+    "hotelLabel" in (input ?? {});
+  const resolvedHotel = hotelTouched
+    ? resolveHotelLabelFromInput(input)
+    : undefined;
+
+  const platformTouched =
+    "platformId" in (input ?? {}) ||
+    "platformName" in (input ?? {}) ||
+    "platform" in (input ?? {}) ||
+    "platformLabel" in (input ?? {});
+  const resolvedPlatformId = platformTouched
+    ? await resolvePlatformIdFromInput(input)
+    : undefined;
+
+  const data: any = {};
+
+  if ("direction" in (input ?? {})) {
+    const v = input.direction;
+    data.direction = v === null ? null : safeText(v) || null;
+  }
+
+  if ("department" in (input ?? {})) {
+    const v = input.department;
+    data.department = v === null ? null : safeText(v) || null;
+  }
+
+  if (hotelTouched) data.hotel = resolvedHotel ?? null;
+
+  if ("teamName" in (input ?? {})) {
+    const v = input.teamName;
+    data.teamName = v === null ? null : safeText(v) || null;
+  }
+
+  if (platformTouched) data.platformId = resolvedPlatformId ?? null;
+
+  if ("notes" in (input ?? {}) || "description" in (input ?? {})) {
+    const v = input.notes ?? input.description;
+    data.description = v === null ? null : safeText(v) || null;
+  }
+
+  let assetNextStatus: "ALTA" | "ASIGNADO" | null = null;
+
+  if (nextStatus === "DEVUELTO") {
+    data.status = "DEVUELTO";
+    data.returnedAt = new Date();
+    assetNextStatus = "ALTA";
+  } else if (nextStatus === "ASIGNADO") {
+    data.status = "ASIGNADO";
+    data.returnedAt = null;
+    assetNextStatus = "ASIGNADO";
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.manualAssignment.update({ where: { id }, data });
+
+    if (assetNextStatus) {
       await tx.asset.update({
         where: { id: existing.assetId },
-        data: { status: "ALTA" },
+        data: { status: assetNextStatus },
       });
-
-      return updatedAssignment;
-    });
-
-    return mapRowToListItem(updated as any);
-  } catch (err) {
-    console.error("[assignments:end] Error:", err);
-    if (err && typeof err === "object" && "status" in (err as any)) {
-      throw err;
     }
-    throw { status: 500, message: "Error al terminar asignación" };
+  });
+
+  return getManual(id);
+}
+
+export async function removeManual(id: number) {
+  const existing = await prisma.manualAssignment.findUnique({
+    where: { id },
+    select: { id: true, status: true },
+  });
+
+  if (!existing) throw new Error("Asignación manual no encontrada.");
+
+  const st = normalizeManualStatus(existing.status);
+  if (st === "ASIGNADO") {
+    throw new Error(
+      "No puedes eliminar una asignación mientras el equipo siga asignado. Primero márcalo como devuelto.",
+    );
   }
+
+  await prisma.manualAssignment.delete({ where: { id } });
+  return { ok: true };
 }
