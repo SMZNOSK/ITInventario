@@ -16,6 +16,12 @@ import {
   Wifi,
   Building2,
   ChevronDown,
+  ArrowRight,
+  AlertTriangle,
+  X,
+  Save,
+  User,
+  Repeat,
 } from "lucide-react";
 
 type AssetStatus = "ALTA" | "ASIGNADO" | "TRANSFERENCIA_PENDIENTE" | "BAJA";
@@ -60,7 +66,8 @@ type AssetRow = {
 function getStatusLabel(status: AssetStatus): string {
   switch (status) {
     case "ALTA":
-      return "Activo";
+      // ANTES: "Activo"
+      return "Alta";
     case "ASIGNADO":
       return "Asignado";
     case "TRANSFERENCIA_PENDIENTE":
@@ -156,6 +163,19 @@ export default function AssetsPage() {
   const [modalStatus, setModalStatus] = useState<AssetStatus>("ALTA");
   const [modalOlderThan3, setModalOlderThan3] = useState<boolean>(false);
 
+  // Modal edit fields for type/brand/model/hotel
+  const [modalTypeId, setModalTypeId] = useState<number | null>(null);
+  const [modalBrandId, setModalBrandId] = useState<number | null>(null);
+  const [modalModelId, setModalModelId] = useState<number | null>(null);
+  const [modalHotelId, setModalHotelId] = useState<number | null>(null);
+  const [modalSaving, setModalSaving] = useState(false);
+
+  // Catalogs for dropdowns
+  const [types, setTypes] = useState<{ id: number; name: string }[]>([]);
+  const [brands, setBrands] = useState<{ id: number; name: string }[]>([]);
+  const [models, setModels] = useState<{ id: number; name: string }[]>([]);
+  const [catalogsLoaded, setCatalogsLoaded] = useState(false);
+
   // “Asignado / Prestado a…”
   const [ownerLoading, setOwnerLoading] = useState(false);
   const [ownerInfo, setOwnerInfo] = useState<OwnerInfo | null>(null);
@@ -174,7 +194,9 @@ export default function AssetsPage() {
   useEffect(() => {
     async function loadHotels() {
       try {
-        const res = await fetchJSON<{ items: { id: number; name: string }[] }>("/api/hotels/active");
+        const res = await fetchJSON<{ items: { id: number; name: string }[] }>(
+          "/api/hotels/active",
+        );
         setHotels(res.items ?? []);
       } catch (e) {
         console.error("Error cargando hoteles:", e);
@@ -344,8 +366,7 @@ export default function AssetsPage() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        const msg =
-          data?.message || data?.error || `Error HTTP ${res.status}`;
+        const msg = data?.message || data?.error || `Error HTTP ${res.status}`;
         throw new Error(msg);
       }
 
@@ -374,8 +395,7 @@ export default function AssetsPage() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        const msg =
-          data?.message || data?.error || `Error HTTP ${res.status}`;
+        const msg = data?.message || data?.error || `Error HTTP ${res.status}`;
         throw new Error(msg);
       }
 
@@ -533,12 +553,52 @@ export default function AssetsPage() {
 
   /* ========= Modal ========= */
 
-  function openModal(asset: AssetRow) {
+  async function loadCatalogs() {
+    if (catalogsLoaded) return;
+    try {
+      const [typesRes, brandsRes, modelsRes] = await Promise.all([
+        fetchJSON<{ items: { id: number; name: string }[] }>(
+          "/api/catalog/types",
+        ),
+        fetchJSON<{ items: { id: number; name: string }[] }>(
+          "/api/catalog/brands",
+        ),
+        fetchJSON<{ items: { id: number; name: string }[] }>(
+          "/api/catalog/models",
+        ),
+      ]);
+      setTypes(typesRes.items ?? []);
+      setBrands(brandsRes.items ?? []);
+      setModels(modelsRes.items ?? []);
+      setCatalogsLoaded(true);
+    } catch (e) {
+      console.error("Error loading catalogs:", e);
+    }
+  }
+
+  async function openModal(asset: AssetRow) {
     setModalAssetId(asset.id);
     setModalStatus(asset.status);
     setModalOlderThan3(asset.olderThan3Years);
 
-    // Cargar “a quién está asignado/prestado” (best-effort)
+    // Load full asset details to get IDs
+    try {
+      const detailRes = await fetchJSON<{ asset: any }>(
+        `/api/assets/${asset.id}`,
+      );
+      const fullAsset = detailRes.asset;
+      setModalTypeId(fullAsset?.typeId ?? null);
+      setModalBrandId(fullAsset?.brandId ?? null);
+      setModalModelId(fullAsset?.modelId ?? null);
+      setModalHotelId(fullAsset?.currentHotelId ?? null);
+    } catch (e) {
+      console.error("Error loading asset details:", e);
+    }
+
+    // Load catalogs if not already loaded
+    void loadCatalogs();
+
+    // Cargar "a quién está asignado/prestado" (best-effort)
     setOwnerInfo(null);
     setOwnerLoading(true);
     void loadOwnerForAsset({ serial: asset.serial }).finally(() => {
@@ -550,20 +610,84 @@ export default function AssetsPage() {
     setModalAssetId(null);
     setOwnerInfo(null);
     setOwnerLoading(false);
+    setModalSaving(false);
   }
 
   async function handleSaveModal() {
     if (!currentModalAsset || modalAssetId == null) return;
 
-    try {
-      await updateRow(modalAssetId, {
-        olderThan3Years: modalOlderThan3,
-      });
-      setRowActionMsg("Cambios guardados correctamente.");
+    // Detectar cambio de ALTA a BAJA: redirigir a página de bajas
+    if (currentModalAsset.status === "ALTA" && modalStatus === "BAJA") {
       closeModal();
-    } catch {
-      // el updateRow ya setea el mensaje de error
+      router.push(
+        `/disposals?serial=${encodeURIComponent(currentModalAsset.serial)}`,
+      );
+      return;
     }
+
+    setModalSaving(true);
+    try {
+      // Build the patch payload with all editable fields
+      const payload: any = {
+        overThreeYears: modalOlderThan3,
+      };
+
+      // Only include IDs that have changed
+      if (modalTypeId !== null) payload.typeId = modalTypeId;
+      if (modalBrandId !== null) payload.brandId = modalBrandId;
+      if (modalModelId !== null) payload.modelId = modalModelId;
+      if (modalHotelId !== null) payload.currentHotelId = modalHotelId;
+
+      const res = await fetch(`/api/assets/${modalAssetId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(
+          data?.message || data?.error || `Error HTTP ${res.status}`,
+        );
+      }
+
+      setRowActionMsg("Cambios guardados correctamente.");
+      await load();
+      closeModal();
+    } catch (e: any) {
+      console.error(e);
+      setRowActionMsg(
+        e?.message || "No se pudo actualizar el activo seleccionado",
+      );
+    } finally {
+      setModalSaving(false);
+    }
+  }
+
+  function handleGoToAssignments() {
+    if (!currentModalAsset) return;
+    closeModal();
+    router.push(
+      `/equipo/assignments?assetCode=${encodeURIComponent(currentModalAsset.serial)}`,
+    );
+  }
+
+  function handleGoToDisposals() {
+    if (!currentModalAsset) return;
+    closeModal();
+    router.push(`/disposals?serial=${encodeURIComponent(currentModalAsset.serial)}`);
+  }
+
+  function handleGoToTransfers() {
+    if (!currentModalAsset) return;
+    closeModal();
+    router.push(
+      `/equipo/transfers?serial=${encodeURIComponent(currentModalAsset.serial)}`,
+    );
   }
 
   function handleGoToCollaborator() {
@@ -591,7 +715,8 @@ export default function AssetsPage() {
 
   const statusPills: { label: string; value: string }[] = [
     { label: "Todos", value: "" },
-    { label: "Activo", value: "ALTA" },
+    // ANTES: { label: "Activo", value: "ALTA" },
+    { label: "Alta", value: "ALTA" },
     { label: "Asignado", value: "ASIGNADO" },
     { label: "Transf.", value: "TRANSFERENCIA_PENDIENTE" },
     { label: "Desactivado", value: "BAJA" },
@@ -904,9 +1029,9 @@ export default function AssetsPage() {
 
       {/* Modal de detalle / edición */}
       {currentModalAsset && modalAssetId !== null && (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4">
-          {/* ↑ Aumentamos el tamaño para tener espacio (max-w-3xl) */}
-          <div className="w-full max-w-3xl rounded-2xl bg-white shadow-xl border border-slate-200">
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4 overflow-y-auto py-8">
+          {/* Modal con overflow visible para dropdowns */}
+          <div className="w-full max-w-3xl rounded-2xl bg-white shadow-xl border border-slate-200 overflow-visible my-auto">
             <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
               <div>
                 <div className="flex items-center gap-2">
@@ -944,36 +1069,44 @@ export default function AssetsPage() {
               </button>
             </div>
 
-            <div className="px-4 py-4 space-y-4 text-xs">
-              {/* Aviso y accesos rápidos */}
-              <div className="flex flex-col gap-2 rounded-lg bg-slate-50 px-3 py-2 text-[11px] text-slate-600 md:flex-row md:items-center md:justify-between">
-                <p className="md:max-w-xl">
-                  Desde este visor solo se guardan detalles administrativos
-                  (años y factura). Para cambios operativos usa las otras
-                  pantallas.
-                </p>
-                <div className="flex gap-2">
+            <div className="px-4 py-4 space-y-4 text-xs overflow-visible">
+              {/* Accesos rápidos - botones de navegación */}
+              <div className="flex flex-col gap-3 rounded-xl bg-gradient-to-r from-slate-50 to-slate-100 px-4 py-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-xs font-medium text-slate-700">
+                    Acciones rápidas
+                  </p>
+                  <p className="text-[10px] text-slate-500">
+                    Los datos del equipo se autocompletan al navegar
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => {
-                      closeModal();
-                      router.push(
-                        `/assignments?assetId=${currentModalAsset.id}`,
-                      );
-                    }}
-                    className="rounded-md border border-slate-300 bg-white px-3 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                    onClick={handleGoToAssignments}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-white px-3 py-1.5 text-[11px] font-medium text-indigo-700 shadow-sm hover:bg-indigo-50 transition-colors"
                   >
-                    Ir a asignaciones
+                    <User className="h-3.5 w-3.5" />
+                    Asignaciones
+                    <ArrowRight className="h-3 w-3" />
                   </button>
                   <button
                     type="button"
-                    onClick={() => {
-                      closeModal();
-                      router.push(`/disposals?assetId=${currentModalAsset.id}`);
-                    }}
-                    className="rounded-md border border-rose-200 bg-rose-50 px-3 py-1 text-[11px] font-medium text-rose-700 hover:bg-rose-100"
+                    onClick={handleGoToTransfers}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-[11px] font-medium text-amber-700 shadow-sm hover:bg-amber-100 transition-colors"
                   >
-                    Ir a bajas
+                    <Repeat className="h-3.5 w-3.5" />
+                    Transferir
+                    <ArrowRight className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleGoToDisposals}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-rose-50 px-3 py-1.5 text-[11px] font-medium text-rose-700 shadow-sm hover:bg-rose-100 transition-colors"
+                  >
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    Bajas
+                    <ArrowRight className="h-3 w-3" />
                   </button>
                 </div>
               </div>
@@ -1020,70 +1153,122 @@ export default function AssetsPage() {
 
               {/* Contenido principal en 2 columnas (mejor orden) */}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {/* Columna izquierda: datos del activo */}
+                {/* Columna izquierda: datos del activo EDITABLES */}
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
+                    {/* Tipo */}
                     <div className="space-y-1">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         Tipo
-                      </div>
-                      <div className="text-slate-900">
-                        {currentModalAsset.typeLabel}
-                      </div>
+                      </label>
+                      <select
+                        value={modalTypeId ?? ""}
+                        onChange={(e) =>
+                          setModalTypeId(
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                      >
+                        <option value="">
+                          {currentModalAsset.typeLabel || "Seleccionar..."}
+                        </option>
+                        {types.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
+
+                    {/* Marca */}
                     <div className="space-y-1">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         Marca
-                      </div>
-                      <div className="text-slate-900">
-                        {currentModalAsset.brandLabel}
-                      </div>
+                      </label>
+                      <select
+                        value={modalBrandId ?? ""}
+                        onChange={(e) =>
+                          setModalBrandId(
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                      >
+                        <option value="">
+                          {currentModalAsset.brandLabel || "Seleccionar..."}
+                        </option>
+                        {brands.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
+
+                    {/* Modelo */}
                     <div className="space-y-1">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         Modelo
-                      </div>
-                      <div className="text-slate-900">
-                        {currentModalAsset.modelLabel}
-                      </div>
+                      </label>
+                      <select
+                        value={modalModelId ?? ""}
+                        onChange={(e) =>
+                          setModalModelId(
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                      >
+                        <option value="">
+                          {currentModalAsset.modelLabel || "Seleccionar..."}
+                        </option>
+                        {models.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
+
+                    {/* Hotel */}
                     <div className="space-y-1">
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                      <label className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                         Hotel
-                      </div>
-                      <div className="text-slate-900">
-                        {currentModalAsset.hotelLabel}
-                      </div>
+                      </label>
+                      <select
+                        value={modalHotelId ?? ""}
+                        onChange={(e) =>
+                          setModalHotelId(
+                            e.target.value ? Number(e.target.value) : null,
+                          )
+                        }
+                        className="w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                      >
+                        <option value="">
+                          {currentModalAsset.hotelLabel || "Seleccionar..."}
+                        </option>
+                        {hotels.map((h) => (
+                          <option key={h.id} value={h.id}>
+                            {h.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </div>
 
-                  <div className="space-y-1">
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                      Estatus
+                  {/* Estatus - solo lectura con mensaje */}
+                  <div className="space-y-1.5 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-600" />
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                        Estatus: {getStatusLabel(currentModalAsset.status)}
+                      </span>
                     </div>
-                    <select
-                      value={modalStatus}
-                      onChange={(e) =>
-                        setModalStatus(e.target.value as AssetStatus)
-                      }
-                      disabled
-                      className="
-                        w-full rounded-md border px-2 py-1 text-xs
-                        border-slate-200 bg-slate-50 text-slate-500
-                        cursor-not-allowed
-                      "
-                    >
-                      <option value="ALTA">ALTA</option>
-                      <option value="ASIGNADO">ASIGNADO</option>
-                      <option value="TRANSFERENCIA_PENDIENTE">
-                        TRANSFERENCIA_PENDIENTE
-                      </option>
-                      <option value="BAJA">BAJA</option>
-                    </select>
-                    <p className="text-[10px] text-slate-500">
-                      Para cambiar el estatus usa las pantallas de{" "}
-                      <span className="font-semibold">Asignaciones</span> o{" "}
-                      <span className="font-semibold">Bajas</span>.
+                    <p className="text-[10px] text-amber-800">
+                      Para cambiar el estatus usa los botones de abajo:{" "}
+                      <span className="font-semibold">Ir a Asignaciones</span> o{" "}
+                      <span className="font-semibold">Ir a Bajas</span>.
                     </p>
                   </div>
                 </div>
@@ -1164,23 +1349,24 @@ export default function AssetsPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between border-t border-slate-200 px-4 py-3">
+            <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-4 py-3">
               <button
                 type="button"
                 onClick={closeModal}
-                className="text-xs font-medium text-slate-600 hover:text-slate-900"
+                disabled={modalSaving}
+                className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors disabled:opacity-50"
               >
+                <X className="h-3.5 w-3.5" />
                 Cancelar
               </button>
               <button
                 type="button"
                 onClick={handleSaveModal}
-                className="
-                  inline-flex items-center rounded-md px-3 py-1.5 text-xs font-semibold
-                  bg-slate-900 text-white hover:bg-slate-800
-                "
+                disabled={modalSaving}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors disabled:opacity-50"
               >
-                Guardar cambios
+                <Save className="h-3.5 w-3.5" />
+                {modalSaving ? "Guardando..." : "Guardar Cambios"}
               </button>
             </div>
           </div>

@@ -519,214 +519,173 @@ export default function LoansPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] pb-16 text-slate-900">
-      {/* Header (más compacto) */}
-      <header className="mx-auto max-w-6xl px-6 pt-8 pb-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-2xl font-black tracking-tight">Crear nuevo préstamo</h1>
-            <p className="mt-1.5 text-sm font-semibold text-slate-500">
-              Registro de asignación temporal de activos de TI.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-2.5 shadow-sm">
-            <div className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 shadow-sm shadow-emerald-200" />
-            <span className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
-              Panel de Control TI
-            </span>
-          </div>
+    <div className="p-6 max-w-6xl mx-auto space-y-6">
+      {/* Header */}
+      <header>
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-800">Crear nuevo préstamo</h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Registro de asignación temporal de activos de TI.
+          </p>
         </div>
 
         {formError && (
-          <div className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700">
+          <div className="mt-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
             {formError}
           </div>
         )}
       </header>
 
-      <main className="mx-auto max-w-6xl px-6">
+      <main>
         <form onSubmit={handleSubmit} className="space-y-6">
           {/* 1) Colaborador */}
-          <section className="rounded-[1.75rem] border border-slate-200/70 bg-white p-6 shadow-sm">
-            <div className="mb-6 flex items-center gap-3.5">
-              <div className="rounded-2xl bg-indigo-600 p-2.5 text-white shadow-lg shadow-indigo-100">
+          <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-6 flex items-center gap-3">
+              <div className="rounded-lg bg-indigo-600 p-2 text-white">
                 <Icons.User />
               </div>
               <div>
-                <h2 className="text-lg font-black">Datos del colaborador</h2>
-                <p className="mt-0.5 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+                <h2 className="text-base font-semibold text-slate-800">Datos del colaborador</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
                   Validación de identidad
                 </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-x-7 gap-y-5 md:grid-cols-12">
+            <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-12">
               <div className="md:col-span-4">
-                <label className="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+                <label className="mb-2 block text-xs font-medium text-slate-600">
                   Número de colaborador
                 </label>
-                <div className="flex gap-2.5">
+                <div className="flex gap-2">
                   <input
                     value={employeeNumber}
                     onChange={(e) => setEmployeeNumber(e.target.value)}
                     placeholder="Ej. 391159"
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm font-bold outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-4 focus:ring-indigo-500/10"
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
                   />
                   <button
                     type="button"
                     onClick={handleLookup}
                     disabled={collabLoading}
-                    className="rounded-2xl bg-slate-900 px-5 text-[10px] font-black uppercase tracking-[0.16em] text-white shadow-lg transition hover:bg-indigo-600 disabled:opacity-60"
+                    className="rounded-lg bg-slate-900 px-4 py-2 text-xs font-medium text-white transition hover:bg-indigo-600 disabled:opacity-60"
                   >
-                    {collabLoading ? "..." : "Buscar"}
+                    {collabLoading ? "Buscando..." : "Buscar"}
                   </button>
                 </div>
 
                 {collabError && (
-                  <p className="mt-2 text-[10px] font-bold text-rose-600">✕ {collabError}</p>
+                  <p className="mt-2 text-xs text-red-600">{collabError}</p>
                 )}
               </div>
 
               <div className="md:col-span-8">
-                <label className="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+                <label className="mb-2 block text-xs font-medium text-slate-600">
                   Nombre completo
                 </label>
                 <input
                   value={employeeName}
                   onChange={(e) => setEmployeeName(e.target.value)}
                   placeholder="Se completará automáticamente..."
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm font-bold outline-none transition focus:border-indigo-500 focus:bg-white"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
                 />
               </div>
 
               <div className="md:col-span-6">
-                <label className="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+                <label className="mb-2 block text-xs font-medium text-slate-600">
                   Correo electrónico
                 </label>
                 <input
                   value={employeeEmail}
                   onChange={(e) => setEmployeeEmail(e.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm font-bold outline-none transition focus:border-indigo-500 focus:bg-white"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
                 />
               </div>
 
               <div className="md:col-span-6">
-                <label className="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+                <label className="mb-2 block text-xs font-medium text-slate-600">
                   Dirección / PeopleSoft
                 </label>
                 <input
                   value={employeeDirection}
                   onChange={(e) => setEmployeeDirection(e.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm font-bold outline-none transition focus:border-indigo-500 focus:bg-white"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
                 />
               </div>
 
               <div className="md:col-span-12">
-                <label className="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+                <label className="mb-2 block text-xs font-medium text-slate-600">
                   Gerencia / Departamento
                 </label>
                 <input
                   value={employeeDept}
                   onChange={(e) => setEmployeeDept(e.target.value)}
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm font-bold outline-none transition focus:border-indigo-500 focus:bg-white"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
                 />
               </div>
             </div>
           </section>
 
-          {/* 2) Hotel + Hostname */}
-          <section className="rounded-[1.75rem] border border-slate-200/70 bg-white p-6 shadow-sm">
-            <div className="mb-6 flex items-center gap-3.5">
-              <div className="rounded-2xl bg-amber-500 p-2.5 text-white shadow-lg shadow-amber-100">
+          {/* 2) Hotel  */}
+          <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-6 flex items-center gap-3">
+              <div className="rounded-lg bg-amber-500 p-2 text-white">
                 <Icons.Hotel />
               </div>
               <div>
-                <h2 className="text-lg font-black">Hotel / Sede y nombre del equipo</h2>
-                <p className="mt-0.5 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
-                  Ubicación y red corporativa
+                <h2 className="text-base font-semibold text-slate-800">Hotel / Sede</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Ubicación del préstamo
                 </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
-                  Sede del préstamo
-                </label>
-                <div className="relative">
-                  <select
-                    value={hotelId}
-                    onChange={(e) => setHotelId(e.target.value ? Number(e.target.value) : "")}
-                    className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm font-bold outline-none transition focus:border-indigo-500 focus:bg-white"
-                  >
-                    <option value="">{hotelsLoading ? "Cargando..." : "Seleccione una sede..."}</option>
-                    {hotels.map((h) => (
-                      <option key={h.id} value={h.id}>
-                        {h.name}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
-                    ▼
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
-                  Nombre del equipo (hostname)
-                </label>
-                <div className="relative">
-                  <div className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-slate-400">
-                    <Icons.Tag />
-                  </div>
-                  <input
-                    value={computerName}
-                    onChange={(e) => setComputerName(e.target.value)}
-                    disabled={!isEligibleForComputerFields}
-                    placeholder={isEligibleForComputerFields ? "Ej. PRESTAMOLAP1" : "No aplica para este tipo de equipo"}
-                    className={`w-full rounded-2xl border px-4 py-3 pl-10 text-sm font-bold outline-none transition ${isEligibleForComputerFields
-                        ? "border-slate-200 bg-slate-50/60 focus:border-indigo-500 focus:bg-white"
-                        : "border-dashed border-slate-200 bg-slate-100 text-slate-300"
-                      }`}
-                  />
-                </div>
-
-                <p className="mt-2.5 text-[10px] font-black uppercase tracking-[0.06em] text-slate-400">
-                  Se verá en la columna <span className="text-slate-600">“Nombre del equipo”</span>.
-                </p>
-              </div>
+            <div>
+              <label className="mb-2 block text-xs font-medium text-slate-600">
+                Sede del préstamo
+              </label>
+              <select
+                value={hotelId}
+                onChange={(e) => setHotelId(e.target.value ? Number(e.target.value) : "")}
+                className="w-full appearance-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
+              >
+                <option value="">{hotelsLoading ? "Cargando..." : "Seleccione una sede..."}</option>
+                {hotels.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.name}
+                  </option>
+                ))}
+              </select>
             </div>
           </section>
 
           {/* 3) Datos préstamo */}
-          <section className="rounded-[1.75rem] border border-slate-200/70 bg-white p-6 shadow-sm">
-            <div className="mb-6 flex items-center gap-3.5">
-              <div className="rounded-2xl bg-emerald-500 p-2.5 text-white shadow-lg shadow-emerald-100">
+          <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="mb-6 flex items-center gap-3">
+              <div className="rounded-lg bg-emerald-500 p-2 text-white">
                 <Icons.Device />
               </div>
               <div>
-                <h2 className="text-lg font-black">Datos del préstamo</h2>
-                <p className="mt-0.5 text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
-                  Activo, plataforma y periodo
+                <h2 className="text-base font-semibold text-slate-800">Datos del préstamo</h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Equipo, plataforma y periodo
                 </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 gap-x-7 gap-y-5 md:grid-cols-2">
-              <div>
-                <label className="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+            <div className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <label className="mb-2 block text-xs font-medium text-slate-600">
                   Equipo (inventario) *
                 </label>
-                <div className="flex gap-2.5">
-                  <div className="flex-1 truncate rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-[11px] font-bold text-slate-600">
+                <div className="flex gap-2">
+                  <div className="flex-1 truncate rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 font-mono text-sm text-slate-600">
                     {equipmentLabel || "No se ha seleccionado equipo..."}
                   </div>
                   <button
                     type="button"
                     onClick={() => setAssetModalOpen(true)}
-                    className="rounded-2xl bg-emerald-600 px-5 text-[10px] font-black uppercase tracking-[0.16em] text-white shadow-lg transition hover:bg-emerald-700"
+                    className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-medium text-white transition hover:bg-emerald-700"
                   >
                     Inventario
                   </button>
@@ -734,70 +693,91 @@ export default function LoansPage() {
               </div>
 
               <div>
-                <label className="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+                <label className="mb-2 block text-xs font-medium text-slate-600">
                   Plataforma
                 </label>
                 {isEligibleForComputerFields ? (
-                  <div className="relative">
-                    <select
-                      value={platformId}
-                      onChange={(e) => setPlatformId(e.target.value ? Number(e.target.value) : "")}
-                      className="w-full appearance-none rounded-2xl border border-slate-200 bg-slate-50/60 px-4 py-3 text-sm font-bold outline-none transition focus:border-indigo-500 focus:bg-white"
-                    >
-                      <option value="">{platformsLoading ? "Cargando..." : "Seleccione plataforma..."}</option>
-                      {platforms.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-slate-400">
-                      ▼
-                    </div>
-                  </div>
+                  <select
+                    value={platformId}
+                    onChange={(e) => setPlatformId(e.target.value ? Number(e.target.value) : "")}
+                    className="w-full appearance-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
+                  >
+                    <option value="">{platformsLoading ? "Cargando..." : "Seleccione plataforma..."}</option>
+                    {platforms.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
                 ) : (
-                  <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-100 px-4 py-3 text-center text-[10px] font-black uppercase tracking-[0.16em] text-slate-300">
+                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-100 px-3 py-2 text-center text-xs text-slate-400">
                     No aplica
                   </div>
                 )}
               </div>
 
               <div>
-                <label className="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+                <label className="mb-2 block text-xs font-medium text-slate-600">
+                  Nombre del equipo (hostname)
+                </label>
+                <div className="relative">
+                  <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-400">
+                    <Icons.Tag />
+                  </div>
+                  <input
+                    value={computerName}
+                    onChange={(e) => setComputerName(e.target.value)}
+                    disabled={!isEligibleForComputerFields}
+                    placeholder={isEligibleForComputerFields ? "Ej. PRESTAMOLAP1" : "No aplica para este tipo de equipo"}
+                    className={`w-full rounded-lg border px-3 py-2 pl-9 text-sm outline-none transition ${isEligibleForComputerFields
+                        ? "border-slate-200 bg-slate-50 focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
+                        : "border-dashed border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed"
+                      }`}
+                  />
+                </div>
+                {isEligibleForComputerFields && (
+                  <p className="mt-1.5 text-xs text-slate-500">
+                    Aparecerá en la columna "Nombre del equipo"
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="mb-2 block text-xs font-medium text-slate-600">
                   Fecha de inicio
                 </label>
                 <div className="relative">
-                  <div className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-slate-400">
+                  <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-400">
                     <Icons.Calendar />
                   </div>
                   <input
                     type="date"
                     value={loanStart}
                     onChange={(e) => setLoanStart(e.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50/60 px-4 py-3 pl-10 text-sm font-bold outline-none transition focus:border-indigo-500 focus:bg-white"
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 pl-9 text-sm outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+                <label className="mb-2 block text-xs font-medium text-slate-600">
                   Fecha de devolución
                 </label>
                 <div className="relative">
-                  <div className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-slate-400">
+                  <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-400">
                     <Icons.Calendar />
                   </div>
                   <input
                     type="date"
                     value={loanEnd}
                     onChange={(e) => setLoanEnd(e.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50/60 px-4 py-3 pl-10 text-sm font-bold outline-none transition focus:border-indigo-500 focus:bg-white"
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 pl-9 text-sm outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
                   />
                 </div>
               </div>
 
               <div className="md:col-span-2">
-                <label className="mb-2 block text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">
+                <label className="mb-2 block text-xs font-medium text-slate-600">
                   Descripción / comentarios
                 </label>
                 <textarea
@@ -805,24 +785,20 @@ export default function LoansPage() {
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Detalles del estado físico, accesorios incluidos, etc."
-                  className="w-full resize-none rounded-[1.5rem] border border-slate-200 bg-slate-50/60 px-5 py-4 text-sm font-bold outline-none transition focus:border-indigo-500 focus:bg-white"
+                  className="w-full resize-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none transition focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
                 />
               </div>
             </div>
           </section>
 
           {/* Acción */}
-          <div className="flex flex-col items-start justify-between gap-5 md:flex-row md:items-center">
-            <p className="max-w-xl text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">
-              Al confirmar, el préstamo quedará visible en <span className="text-slate-600">Control de Préstamos</span>.
-            </p>
-
+          <div className="flex justify-end">
             <button
               type="submit"
               disabled={saving}
-              className="w-full rounded-[1.75rem] bg-indigo-600 px-9 py-3.5 text-[11px] font-black uppercase tracking-[0.2em] text-white shadow-2xl shadow-indigo-100 transition hover:bg-indigo-700 disabled:opacity-60 md:w-auto"
+              className="rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {saving ? "Creando…" : "Crear préstamo"}
+              {saving ? "Creando..." : "Crear préstamo"}
             </button>
           </div>
         </form>

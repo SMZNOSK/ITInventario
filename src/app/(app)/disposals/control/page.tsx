@@ -36,6 +36,7 @@ type DisposalItem = {
         modelName?: string | null;
         hotelName?: string | null;
     };
+    evidences?: { id: number; url: string; filename?: string | null }[];
 };
 
 type DisposalDetail = {
@@ -61,14 +62,7 @@ type DisposalDetail = {
 
 type Hotel = { id: number; name: string };
 
-// Helper: Extract evidence image URLs from notes field
-function extractEvidenceUrls(notes?: string): string[] {
-    if (!notes) return [];
-    // Match URLs that start with /uploads/evidence/
-    const regex = /\/uploads\/evidence\/[^\s\n]+/g;
-    const matches = notes.match(regex);
-    return matches || [];
-}
+
 
 export default function DisposalsControlPage() {
     const [items, setItems] = React.useState<DisposalItem[]>([]);
@@ -79,6 +73,11 @@ export default function DisposalsControlPage() {
     // Hotel filter
     const [hotels, setHotels] = React.useState<Hotel[]>([]);
     const [selectedHotelId, setSelectedHotelId] = React.useState<string>("");
+
+    // Month filter (separate month and year)
+    const [selectedFilterMonth, setSelectedFilterMonth] = React.useState<string>("");
+    const [selectedFilterYear, setSelectedFilterYear] = React.useState<string>("");
+
     const [exporting, setExporting] = React.useState(false);
 
     // Detail modal state
@@ -87,9 +86,34 @@ export default function DisposalsControlPage() {
     const [loadingDetail, setLoadingDetail] = React.useState(false);
     const [successMessage, setSuccessMessage] = React.useState<string | null>(null);
 
+    // Edit mode state
+    const [editMode, setEditMode] = React.useState(false);
+    const [editReason, setEditReason] = React.useState("");
+    const [editNotes, setEditNotes] = React.useState("");
+    const [saving, setSaving] = React.useState(false);
+
+    // Image management state
+    const [imagesToDelete, setImagesToDelete] = React.useState<number[]>([]);
+    const [newImages, setNewImages] = React.useState<File[]>([]);
+    const [uploadingImages, setUploadingImages] = React.useState(false);
+
+    // Drag and drop state
+    const [isDragging, setIsDragging] = React.useState(false);
+
     // Image modal state
     const [selectedImages, setSelectedImages] = React.useState<string[]>([]);
     const [imageModalOpen, setImageModalOpen] = React.useState(false);
+
+    // Generate year options dynamically (from 2015 to current year)
+    const availableYears = React.useMemo(() => {
+        const currentYear = new Date().getFullYear();
+        const startYear = 2015;
+        const years: number[] = [];
+        for (let year = currentYear; year >= startYear; year--) {
+            years.push(year);
+        }
+        return years;
+    }, []);
 
     // Load hotels
     React.useEffect(() => {
@@ -134,6 +158,24 @@ export default function DisposalsControlPage() {
             });
         }
 
+        // Filter by month
+        if (selectedFilterMonth || selectedFilterYear) {
+            result = result.filter((item) => {
+                const date = new Date(item.disposedAt);
+                const itemYear = date.getFullYear();
+                const itemMonth = date.getMonth() + 1;
+
+                let matches = true;
+                if (selectedFilterYear) {
+                    matches = matches && itemYear === Number(selectedFilterYear);
+                }
+                if (selectedFilterMonth) {
+                    matches = matches && itemMonth === Number(selectedFilterMonth);
+                }
+                return matches;
+            });
+        }
+
         // Filter by search
         const q = search.trim().toLowerCase();
         if (q) {
@@ -155,7 +197,7 @@ export default function DisposalsControlPage() {
         }
 
         return result;
-    }, [items, search, selectedHotelId, hotels]);
+    }, [items, search, selectedHotelId, selectedFilterMonth, selectedFilterYear, hotels]);
 
     const stats = React.useMemo(() => {
         const total = items.length;
@@ -177,6 +219,10 @@ export default function DisposalsControlPage() {
             if (!res.ok) throw new Error("Error al cargar detalle");
             const data = await res.json();
             setSelectedDisposal(data.disposal);
+            // Initialize edit values
+            setEditMode(false);
+            setEditReason(data.disposal.reason || "");
+            setEditNotes(data.disposal.notes || "");
         } catch (err: any) {
             setError(err?.message || "Error al cargar detalle");
             setDetailModalOpen(false);
@@ -188,7 +234,145 @@ export default function DisposalsControlPage() {
     function closeDetailModal() {
         setDetailModalOpen(false);
         setSelectedDisposal(null);
+        setEditMode(false);
+        setEditReason("");
+        setEditNotes("");
+        setImagesToDelete([]);
+        setNewImages([]);
     }
+
+    // Edit mode functions
+    function handleStartEdit() {
+        if (!selectedDisposal) return;
+        setEditMode(true);
+        setEditReason(selectedDisposal.reason);
+        setEditNotes(selectedDisposal.notes || "");
+    }
+
+    function handleCancelEdit() {
+        if (!selectedDisposal) return;
+        setEditMode(false);
+        setEditReason(selectedDisposal.reason);
+        setEditNotes(selectedDisposal.notes || "");
+    }
+
+    async function handleSaveEdit() {
+        if (!selectedDisposal) return;
+        setSaving(true);
+        setError(null);
+        try {
+            let newImageUrls: string[] = [];
+            if (newImages.length > 0) {
+                setUploadingImages(true);
+                const formData = new FormData();
+                newImages.forEach(file => formData.append('files', file));
+                const uploadRes = await fetch('/api/uploads/evidence', { method: 'POST', body: formData });
+                if (uploadRes.ok) {
+                    const data = await uploadRes.json();
+                    newImageUrls = data.urls || [];
+                }
+                setUploadingImages(false);
+            }
+            const res = await fetch(`/api/disposals/${selectedDisposal.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    reason: editReason.trim(),
+                    notes: editNotes.trim() || undefined,
+                    evidenceIdsToDelete: imagesToDelete.length > 0 ? imagesToDelete : undefined,
+                    newEvidenceUrls: newImageUrls.length > 0 ? newImageUrls : undefined,
+                }),
+            });
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || data.message || "Error al guardar");
+            }
+            setImagesToDelete([]);
+            setNewImages([]);
+            await loadDisposals();
+            await openDetailModal(selectedDisposal.id.toString());
+            setEditMode(false);
+            setSuccessMessage("Cambios guardados correctamente");
+            setTimeout(() => setSuccessMessage(null), 3000);
+        } catch (err: any) {
+            setError(err?.message || "Error al guardar cambios");
+        } finally {
+            setSaving(false);
+            setUploadingImages(false);
+        }
+    }
+
+    function handleMarkImageForDeletion(evidenceId: number) {
+        setImagesToDelete(prev => [...prev, evidenceId]);
+    }
+
+    function handleUnmarkImageForDeletion(evidenceId: number) {
+        setImagesToDelete(prev => prev.filter(id => id !== evidenceId));
+    }
+
+    function handleAddImages(files: FileList) {
+        const validImages = Array.from(files).filter(f => f.type.startsWith('image/'));
+        setNewImages(prev => [...prev, ...validImages]);
+    }
+
+    function handleRemoveNewImage(index: number) {
+        setNewImages(prev => prev.filter((_, i) => i !== index));
+    }
+
+    // Drag and drop handlers
+    function handleDragEnter(e: React.DragEvent<HTMLLabelElement>) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+    }
+
+    function handleDragOver(e: React.DragEvent<HTMLLabelElement>) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    function handleDragLeave(e: React.DragEvent<HTMLLabelElement>) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+    }
+
+    function handleDrop(e: React.DragEvent<HTMLLabelElement>) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+
+        const files = e.dataTransfer.files;
+        if (files && files.length > 0) {
+            handleAddImages(files);
+        }
+    }
+
+    async function handleExportSingle(disposalId: string, serial: string) {
+        setError(null);
+        try {
+            const url = `/api/disposals/${disposalId}/export`;
+            const res = await fetch(url);
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.error || "Error al exportar");
+            }
+            const blob = await res.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = downloadUrl;
+            a.download = `baja_${serial}_${new Date().toISOString().split('T')[0]}.xlsx`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(downloadUrl);
+            a.remove();
+            setSuccessMessage(`Baja de ${serial} exportada correctamente`);
+            setTimeout(() => setSuccessMessage(null), 3000);
+        } catch (err: any) {
+            setError(err?.message || "Error al exportar");
+        }
+    }
+
 
     async function handleExport() {
         setExporting(true);
@@ -197,7 +381,10 @@ export default function DisposalsControlPage() {
             if (selectedHotelId) {
                 params.set("hotelId", selectedHotelId);
             }
-            const url = `/api/disposals/export${params.toString() ? `?${params}` : ""}`;
+            if (selectedFilterMonth && selectedFilterYear) {
+                params.set("month", `${selectedFilterYear}-${selectedFilterMonth.padStart(2, '0')}`);
+            }
+            const url = `/api/disposals/export/xlsx?${params.toString()}`;
 
             const res = await fetch(url);
             if (!res.ok) throw new Error("Error al exportar");
@@ -206,7 +393,7 @@ export default function DisposalsControlPage() {
             const downloadUrl = window.URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = downloadUrl;
-            a.download = res.headers.get("Content-Disposition")?.split("filename=")[1]?.replace(/"/g, "") || "bajas.csv";
+            a.download = res.headers.get("Content-Disposition")?.split("filename=")[1]?.replace(/"/g, "") || "bajas.xlsx";
             document.body.appendChild(a);
             a.click();
             window.URL.revokeObjectURL(downloadUrl);
@@ -335,6 +522,55 @@ export default function DisposalsControlPage() {
                         </select>
                     </div>
 
+                    {/* Month/Year filter */}
+                    <div className="flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-slate-400" />
+                        <select
+                            value={selectedFilterMonth}
+                            onChange={(e) => setSelectedFilterMonth(e.target.value)}
+                            className="px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                        >
+                            <option value="">Todos los meses</option>
+                            <option value="1">Enero</option>
+                            <option value="2">Febrero</option>
+                            <option value="3">Marzo</option>
+                            <option value="4">Abril</option>
+                            <option value="5">Mayo</option>
+                            <option value="6">Junio</option>
+                            <option value="7">Julio</option>
+                            <option value="8">Agosto</option>
+                            <option value="9">Septiembre</option>
+                            <option value="10">Octubre</option>
+                            <option value="11">Noviembre</option>
+                            <option value="12">Diciembre</option>
+                        </select>
+                        <select
+                            value={selectedFilterYear}
+                            onChange={(e) => setSelectedFilterYear(e.target.value)}
+                            className="px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                        >
+                            <option value="">Todos los años</option>
+                            {availableYears.map((year) => (
+                                <option key={year} value={String(year)}>
+                                    {year}
+                                </option>
+                            ))}
+                        </select>
+                        {(selectedFilterMonth || selectedFilterYear) && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setSelectedFilterMonth("");
+                                    setSelectedFilterYear("");
+                                }}
+                                className="text-slate-400 hover:text-slate-600"
+                                title="Limpiar filtro de fecha"
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        )}
+                    </div>
+
                     {/* Export button */}
                     <button
                         type="button"
@@ -343,7 +579,7 @@ export default function DisposalsControlPage() {
                         className="inline-flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50"
                     >
                         <Download className="w-4 h-4" />
-                        {exporting ? "Exportando..." : "Exportar CSV"}
+                        {exporting ? "Exportando..." : "Exportar Excel"}
                     </button>
                 </div>
             </section>
@@ -434,31 +670,27 @@ export default function DisposalsControlPage() {
                                         )}
 
                                         {/* Evidence thumbnails */}
-                                        {(() => {
-                                            const urls = extractEvidenceUrls(item.notes);
-                                            if (urls.length === 0) return null;
-                                            return (
-                                                <div className="flex gap-2 mt-2">
-                                                    {urls.slice(0, 3).map((url, idx) => (
-                                                        <img
-                                                            key={idx}
-                                                            src={url}
-                                                            alt={`Evidencia ${idx + 1}`}
-                                                            className="w-12 h-12 object-cover rounded border border-slate-200 cursor-pointer hover:opacity-80"
-                                                            onClick={() => openImageModal(urls)}
-                                                        />
-                                                    ))}
-                                                    {urls.length > 3 && (
-                                                        <div
-                                                            className="w-12 h-12 flex items-center justify-center bg-slate-100 rounded border border-slate-200 text-xs text-slate-500 cursor-pointer hover:bg-slate-200"
-                                                            onClick={() => openImageModal(urls)}
-                                                        >
-                                                            +{urls.length - 3}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            );
-                                        })()}
+                                        {item.evidences && item.evidences.length > 0 && (
+                                            <div className="flex gap-2 mt-2">
+                                                {item.evidences.slice(0, 3).map((evidence) => (
+                                                    <img
+                                                        key={evidence.id}
+                                                        src={evidence.url}
+                                                        alt={evidence.filename || `Evidencia ${evidence.id}`}
+                                                        className="w-12 h-12 object-cover rounded border border-slate-200 cursor-pointer hover:opacity-80"
+                                                        onClick={() => openImageModal(item.evidences!.map(e => e.url))}
+                                                    />
+                                                ))}
+                                                {item.evidences.length > 3 && (
+                                                    <div
+                                                        className="w-12 h-12 flex items-center justify-center bg-slate-100 rounded border border-slate-200 text-xs text-slate-500 cursor-pointer hover:bg-slate-200"
+                                                        onClick={() => openImageModal(item.evidences!.map(e => e.url))}
+                                                    >
+                                                        +{item.evidences.length - 3}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Actions */}
@@ -470,6 +702,14 @@ export default function DisposalsControlPage() {
                                         >
                                             <Eye className="w-4 h-4" />
                                             Ver Detalles
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleExportSingle(item.id, item.assetSerial)}
+                                            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-emerald-700 bg-white border border-emerald-200 rounded-lg hover:bg-emerald-50"
+                                            title="Exportar a Excel"
+                                        >
+                                            <Download className="w-4 h-4" />
                                         </button>
                                         <button
                                             type="button"
@@ -553,17 +793,42 @@ export default function DisposalsControlPage() {
                                 <div className="space-y-3">
                                     <div>
                                         <p className="text-xs font-medium uppercase tracking-wider text-slate-400 mb-1">Motivo</p>
-                                        <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-red-100 text-red-800">
-                                            <AlertTriangle className="w-4 h-4 mr-1" />
-                                            {selectedDisposal.reason}
-                                        </span>
+                                        {editMode ? (
+                                            <select
+                                                value={editReason}
+                                                onChange={(e) => setEditReason(e.target.value)}
+                                                className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                            >
+                                                <option value="OBSOLETO">OBSOLETO</option>
+                                                <option value="DAÑO POR ACCIDENTE">DAÑO POR ACCIDENTE</option>
+                                                <option value="DESGASTE NORMAL">DESGASTE NORMAL</option>
+                                                <option value="ROBO">ROBO</option>
+                                                <option value="PERDIDA">PERDIDA</option>
+                                                <option value="OTRO">OTRO</option>
+                                            </select>
+                                        ) : (
+                                            <span className="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-red-100 text-red-800">
+                                                <AlertTriangle className="w-4 h-4 mr-1" />
+                                                {selectedDisposal.reason}
+                                            </span>
+                                        )}
                                     </div>
-                                    {selectedDisposal.notes && (
+                                    {(editMode || selectedDisposal.notes) && (
                                         <div>
                                             <p className="text-xs font-medium uppercase tracking-wider text-slate-400 mb-1">Notas</p>
-                                            <p className="text-sm text-slate-700 bg-slate-50 rounded-lg p-3 border border-slate-100">
-                                                {selectedDisposal.notes}
-                                            </p>
+                                            {editMode ? (
+                                                <textarea
+                                                    value={editNotes}
+                                                    onChange={(e) => setEditNotes(e.target.value)}
+                                                    rows={3}
+                                                    className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                                                    placeholder="Notas adicionales..."
+                                                />
+                                            ) : (
+                                                <p className="text-sm text-slate-700 bg-slate-50 rounded-lg p-3 border border-slate-100">
+                                                    {selectedDisposal.notes}
+                                                </p>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -590,19 +855,103 @@ export default function DisposalsControlPage() {
                                 {selectedDisposal.evidences.length > 0 && (
                                     <div>
                                         <p className="text-xs font-medium uppercase tracking-wider text-slate-400 mb-2">
-                                            Evidencia ({selectedDisposal.evidences.length} imágenes)
+                                            Evidencia ({selectedDisposal.evidences.filter(e => !imagesToDelete.includes(e.id)).length} imágenes)
                                         </p>
                                         <div className="grid grid-cols-3 gap-2">
-                                            {selectedDisposal.evidences.map((e) => (
-                                                <img
-                                                    key={e.id}
-                                                    src={e.url}
-                                                    alt={e.filename || "Evidencia"}
-                                                    className="w-full h-24 object-cover rounded-lg border border-slate-200 cursor-pointer hover:opacity-80"
-                                                    onClick={() => openImageModal(selectedDisposal.evidences.map((ev) => ev.url))}
-                                                />
-                                            ))}
+                                            {selectedDisposal.evidences
+                                                .filter(e => !imagesToDelete.includes(e.id))
+                                                .map((e) => (
+                                                    <div key={e.id} className="relative group">
+                                                        <img
+                                                            src={e.url}
+                                                            alt={e.filename || "Evidencia"}
+                                                            className="w-full h-24 object-cover rounded-lg border border-slate-200 cursor-pointer hover:opacity-80"
+                                                            onClick={() => openImageModal(selectedDisposal.evidences.map((ev) => ev.url))}
+                                                        />
+                                                        {editMode && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleMarkImageForDeletion(e.id)}
+                                                                className="absolute top-1 right-1 p-1 bg-red-600 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-700"
+                                                                title="Eliminar imagen"
+                                                            >
+                                                                <X className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                ))}
                                         </div>
+                                        {editMode && imagesToDelete.length > 0 && (
+                                            <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-lg">
+                                                <p className="text-xs text-red-700">
+                                                    {imagesToDelete.length} imagen(es) serán eliminadas al guardar.
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setImagesToDelete([])}
+                                                        className="ml-2 text-xs underline hover:no-underline"
+                                                    >
+                                                        Deshacer
+                                                    </button>
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Add new images - Only in edit mode */}
+                                {editMode && (
+                                    <div>
+                                        <p className="text-xs font-medium uppercase tracking-wider text-slate-400 mb-2">
+                                            Agregar Imágenes
+                                        </p>
+                                        <label
+                                            className={`block border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-colors ${isDragging
+                                                ? 'border-indigo-400 bg-indigo-50'
+                                                : 'border-slate-300 hover:border-indigo-400 hover:bg-indigo-50'
+                                                }`}
+                                            onDragEnter={handleDragEnter}
+                                            onDragOver={handleDragOver}
+                                            onDragLeave={handleDragLeave}
+                                            onDrop={handleDrop}
+                                        >
+                                            <input
+                                                type="file"
+                                                multiple
+                                                accept="image/*"
+                                                onChange={(e) => e.target.files && handleAddImages(e.target.files)}
+                                                className="hidden"
+                                            />
+                                            <ImageIcon className={`w-8 h-8 mx-auto mb-2 ${isDragging ? 'text-indigo-500' : 'text-slate-400'}`} />
+                                            <p className={`text-sm ${isDragging ? 'text-indigo-600 font-medium' : 'text-slate-600'}`}>
+                                                {isDragging ? 'Suelta las imágenes aquí' : 'Click o arrastra imágenes aquí'}
+                                            </p>
+                                        </label>
+
+                                        {/* Preview of new images */}
+                                        {newImages.length > 0 && (
+                                            <div className="grid grid-cols-3 gap-2 mt-3">
+                                                {newImages.map((file, index) => (
+                                                    <div key={index} className="relative group">
+                                                        <img
+                                                            src={URL.createObjectURL(file)}
+                                                            alt={file.name}
+                                                            className="w-full h-24 object-cover rounded-lg border border-emerald-300"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveNewImage(index)}
+                                                            className="absolute top-1 right-1 p-1 bg-red-600 text-white rounded-full hover:bg-red-700"
+                                                            title="Quitar imagen"
+                                                        >
+                                                            <X className="w-4 h-4" />
+                                                        </button>
+                                                        <span className="absolute bottom-1 left-1 text-xs bg-emerald-600 text-white px-2 py-0.5 rounded">
+                                                            Nuevo
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                             </div>
@@ -611,13 +960,44 @@ export default function DisposalsControlPage() {
                         {/* Modal Footer */}
                         {selectedDisposal && !loadingDetail && (
                             <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50">
-                                <button
-                                    type="button"
-                                    onClick={closeDetailModal}
-                                    className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
-                                >
-                                    Cerrar
-                                </button>
+                                {!editMode ? (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={closeDetailModal}
+                                            className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50"
+                                        >
+                                            Cerrar
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleStartEdit}
+                                            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
+                                        >
+                                            Editar
+                                        </button>
+                                    </>
+                                ) : (
+                                    <>
+                                        <button
+                                            type="button"
+                                            onClick={handleCancelEdit}
+                                            disabled={saving || uploadingImages}
+                                            className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+                                        >
+                                            Cancelar
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={handleSaveEdit}
+                                            disabled={saving || uploadingImages || !editReason.trim()}
+                                            className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 flex items-center gap-2"
+                                        >
+                                            {(saving || uploadingImages) && <RefreshCw className="w-4 h-4 animate-spin" />}
+                                            {uploadingImages ? "Subiendo imágenes..." : saving ? "Guardando..." : "Guardar Cambios"}
+                                        </button>
+                                    </>
+                                )}
                             </div>
                         )}
                     </div>

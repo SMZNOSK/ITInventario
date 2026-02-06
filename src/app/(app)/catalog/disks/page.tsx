@@ -2,7 +2,8 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useAuth } from "@/app/providers";
+import { useAuth } from "@/app/providers/AuthProvider";
+import { HardDrive, RefreshCw, Plus, Edit, Trash2, Search } from "lucide-react";
 
 type DiskApi = {
   id: number;
@@ -18,11 +19,6 @@ type DiskRow = {
   active: boolean;
 };
 
-const statusStyles = {
-  true: "bg-emerald-100 text-emerald-800 border-emerald-200",
-  false: "bg-rose-100 text-rose-800 border-rose-200",
-} as const;
-
 export default function DisksPage() {
   const { fetchJSON } = useAuth();
 
@@ -33,15 +29,14 @@ export default function DisksPage() {
   const [name, setName] = useState("");
   const [vendor, setVendor] = useState("");
   const [busy, setBusy] = useState(false);
+  const [search, setSearch] = useState("");
 
   async function load() {
     try {
       setLoading(true);
       setErr(null);
 
-      const data = await fetchJSON<{ items: DiskApi[] }>(
-        "/api/catalog/disks",
-      );
+      const data = await fetchJSON<{ items: DiskApi[] }>("/api/catalog/disks");
       const items = Array.isArray(data?.items) ? data.items : [];
 
       setRows(
@@ -65,8 +60,7 @@ export default function DisksPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleCreate() {
     const cleanName = name.trim();
     const cleanVendor = vendor.trim();
     if (!cleanName) return;
@@ -163,132 +157,170 @@ export default function DisksPage() {
     }
   }
 
-  return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 py-6">
-      <h2 className="text-2xl font-bold tracking-tight">Tipos de disco</h2>
-      <p className="text-sm text-slate-600">
-        Registra los tipos/capacidades de disco que se podrán asignar a CPUs y
-        laptops en el inventario.
-      </p>
+  const filteredRows = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) =>
+      r.name.toLowerCase().includes(q) ||
+      r.vendor.toLowerCase().includes(q)
+    );
+  }, [rows, search]);
 
-      {/* Formulario */}
-      <form
-        onSubmit={handleCreate}
-        className="flex flex-col gap-3 rounded-xl border bg-white/70 p-4 shadow-sm dark:bg-white/5"
-      >
-        <div className="grid gap-3 md:grid-cols-3">
-          <div className="md:col-span-2">
-            <label className="mb-1 block text-xs font-semibold text-slate-600">
-              Nombre del tipo de disco
-            </label>
+  return (
+    <div className="p-6 max-w-5xl mx-auto space-y-6">
+      {/* Header */}
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-800 flex items-center gap-3">
+            <HardDrive className="w-7 h-7 text-indigo-600" />
+            Tipos de disco
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Registra los tipos/capacidades de disco que se podrán asignar a CPUs y laptops en el inventario.
+          </p>
+        </div>
+        <button
+          onClick={load}
+          disabled={loading}
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+          Actualizar
+        </button>
+      </header>
+
+      {/* Error */}
+      {err && (
+        <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {err}
+        </div>
+      )}
+
+      {/* Formulario de creación */}
+      <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+        <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-4">
+          Agregar nuevo tipo de disco
+        </h2>
+        <div className="flex gap-3">
+          <div className="relative flex-1">
+            <HardDrive className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
+              type="text"
+              className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+              placeholder="Nombre del tipo de disco"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="1 TB SSD, 2 TB HDD 7200 RPM…"
-              className="w-full rounded-lg border border-slate-300 bg-slate-900 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
             />
           </div>
-          <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-600">
-              Proveedor / fabricante (opcional)
-            </label>
+          <div className="relative flex-1">
             <input
+              type="text"
+              className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+              placeholder="Proveedor / fabricante (opcional)"
               value={vendor}
               onChange={(e) => setVendor(e.target.value)}
-              placeholder="Samsung, Seagate, Western Digital…"
-              className="w-full rounded-lg border border-slate-300 bg-slate-900 px-3 py-2 text-sm text-slate-50 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+            />
+          </div>
+          <button
+            onClick={handleCreate}
+            disabled={busy || !name.trim()}
+            className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Plus className="w-4 h-4" />
+            {busy ? "Guardando..." : "Agregar"}
+          </button>
+        </div>
+        <p className="mt-3 text-xs text-slate-500">
+          Estos valores se usarán más adelante al capturar inventario de CPUs y laptops.
+        </p>
+      </section>
+
+      {/* Lista */}
+      <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+              Lista de Tipos de Disco
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {filteredRows.length} {filteredRows.length === 1 ? "tipo" : "tipos"} registrados
+            </p>
+          </div>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar..."
+              className="pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
             />
           </div>
         </div>
-        <p className="text-xs text-slate-500">
-          Estos valores se usarán más adelante al capturar inventario de CPUs y
-          laptops.
-        </p>
-        <div className="flex justify-end">
-          <button
-            type="submit"
-            disabled={busy || !name.trim()}
-            className="inline-flex items-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {busy ? "Guardando…" : "Agregar"}
-          </button>
-        </div>
-      </form>
 
-      {err && <p className="text-sm text-red-600">{err}</p>}
+        <div className="divide-y divide-slate-100">
+          {loading && (
+            <div className="px-6 py-12 text-center">
+              <RefreshCw className="w-8 h-8 animate-spin text-slate-400 mx-auto" />
+              <p className="mt-2 text-sm text-slate-500">Cargando tipos de disco...</p>
+            </div>
+          )}
 
-      {/* Tabla */}
-      <div className="overflow-hidden rounded-xl border bg-white/70 shadow-sm dark:bg-white/5">
-        <table className="min-w-full text-sm">
-          <thead>
-            <tr className="bg-slate-900 text-left text-xs font-semibold uppercase tracking-wide text-slate-50">
-              <th className="px-4 py-3">Nombre</th>
-              <th className="px-4 py-3">Proveedor</th>
-              <th className="px-4 py-3">Estatus</th>
-              <th className="px-4 py-3 text-right">Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && (
-              <tr>
-                <td
-                  colSpan={4}
-                  className="px-4 py-6 text-center text-slate-500"
-                >
-                  Cargando…
-                </td>
-              </tr>
-            )}
-            {!loading && rows.length === 0 && (
-              <tr>
-                <td
-                  colSpan={4}
-                  className="px-4 py-6 text-center text-slate-500"
-                >
-                  Aún no hay tipos de disco registrados.
-                </td>
-              </tr>
-            )}
+          {!loading && filteredRows.length === 0 && (
+            <div className="px-6 py-12 text-center">
+              <HardDrive className="w-12 h-12 text-slate-300 mx-auto" />
+              <h3 className="mt-4 text-lg font-medium text-slate-600">Sin tipos de disco</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                {search.trim() ? "No hay tipos que coincidan con la búsqueda." : "Agrega tu primer tipo de disco arriba."}
+              </p>
+            </div>
+          )}
 
-            {!loading &&
-              rows.map((row) => (
-                <tr
-                  key={row.id}
-                  className="border-t border-slate-200 last:border-b dark:border-slate-700"
-                >
-                  <td className="whitespace-nowrap px-4 py-3 text-slate-900 dark:text-slate-900">
-                    {row.name || (
-                      <span className="text-slate-400">Sin nombre</span>
-                    )}
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 dark:bg-slate-800 dark:text-slate-100">
-                      {row.vendor || "—"}
+          {!loading && filteredRows.map((row) => (
+            <div key={row.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
+                  <HardDrive className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-sm font-medium text-slate-800">{row.name}</span>
+                  {row.vendor && (
+                    <p className="mt-0.5 text-xs text-slate-500">{row.vendor}</p>
+                  )}
+                  <div className="mt-1">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${row.active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"
+                        }`}
+                    >
+                      {row.active ? "Activo" : "Inactivo"}
                     </span>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3">
-                    <button
-                      type="button"
-                      onClick={() => toggleActive(row)}
-                      className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${statusStyles[row.active ? "true" : "false"]}`}
-                    >
-                      {row.active ? "ACTIVO" : "INACTIVO"}
-                    </button>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(row)}
-                      className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100"
-                    >
-                      Eliminar
-                    </button>
-                  </td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-      </div>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => toggleActive(row)}
+                  className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg ${row.active
+                      ? "text-slate-700 bg-white border border-slate-200 hover:bg-slate-50"
+                      : "text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100"
+                    }`}
+                >
+                  {row.active ? "Desactivar" : "Activar"}
+                </button>
+                <button
+                  onClick={() => handleDelete(row)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Eliminar
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
     </div>
   );
 }

@@ -4,6 +4,8 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import { withError, http } from "@/server/utils/withError";
 import { prisma } from "@/lib/db";
+import { requireAuth, hasHotelAccess } from "@/server/guards/auth";
+import * as s from "@/server/modules/disposals/service";
 
 type RouteContext = {
     params: Promise<{ id: string }>;
@@ -19,48 +21,39 @@ function parseId(raw: string): number {
 
 /**
  * GET /api/disposals/:id
- * Devuelve el detalle de una baja con asset.
+ * Devuelve el detalle de una baja con asset y evidencias.
+ * Valida acceso al hotel del asset.
  */
-export const GET = withError(async (_req: NextRequest, context: RouteContext) => {
+export const GET = withError(async (req: NextRequest, context: RouteContext) => {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return auth.res;
+
     const { id } = await context.params;
     const disposalId = parseId(id);
 
-    // Simple query without new relations that may not be synced
-    const disposal = await prisma.disposal.findUnique({
-        where: { id: disposalId },
-        include: {
-            asset: {
-                include: {
-                    type: true,
-                    brand: true,
-                    model: true,
-                    currentHotel: true,
-                },
-            },
-            createdBy: {
-                select: { id: true, name: true, username: true },
-            },
-        },
-    });
+    const disposal = await s.getById(disposalId);
 
     if (!disposal) {
         throw http.notFound("Baja no encontrada");
     }
 
-    // Get hotel name from asset if available
-    const hotelName = disposal.asset.currentHotel?.name ?? null;
+    // Validar acceso al hotel
+    const hotelId = disposal.hotelId ?? disposal.asset.currentHotelId;
+    if (!hasHotelAccess(auth.data, hotelId)) {
+        throw http.forbidden("No tienes acceso a esta baja");
+    }
 
     return NextResponse.json({
         disposal: {
             id: disposal.id,
             assetId: disposal.assetId,
-            hotelId: null, // Will be populated when schema is synced
+            hotelId: disposal.hotelId,
             reason: disposal.reason,
             notes: disposal.notes,
             evidenceUrl: disposal.evidenceUrl,
             disposedAt: disposal.disposedAt,
-            createdAt: disposal.disposedAt, // fallback
-            restoredAt: null,
+            createdAt: disposal.createdAt,
+            restoredAt: disposal.restoredAt,
             asset: {
                 id: disposal.asset.id,
                 serial: disposal.asset.serial,
@@ -68,44 +61,81 @@ export const GET = withError(async (_req: NextRequest, context: RouteContext) =>
                 typeName: disposal.asset.type?.name ?? null,
                 brandName: disposal.asset.brand?.name ?? null,
                 modelName: disposal.asset.model?.name ?? null,
-                hotelName,
+                hotelName: disposal.asset.currentHotel?.name ?? null,
             },
-            hotel: hotelName ? { id: disposal.asset.currentHotelId, name: hotelName } : null,
+            hotel: disposal.hotel ? { id: disposal.hotel.id, name: disposal.hotel.name } : null,
             createdBy: disposal.createdBy,
-            restoredBy: null,
-            evidences: [],
+            restoredBy: disposal.restoredBy,
+            evidences: disposal.evidences.map((e) => ({
+                id: e.id,
+                url: e.url,
+                filename: e.filename,
+            })),
         },
     });
 });
 
 /**
  * PATCH /api/disposals/:id
- * Edita motivo y notas de una baja.
+ * Edita motivo, notas y evidencias de una baja.
+ * Valida acceso al hotel.
  */
 export const PATCH = withError(async (req: NextRequest, context: RouteContext) => {
+    const auth = await requireAuth(req);
+    if (!auth.ok) return auth.res;
+
     const { id } = await context.params;
     const disposalId = parseId(id);
 
     const body = await req.json();
-    const { reason, notes } = body as {
+    const { reason, notes, evidenceIdsToDelete, newEvidenceUrls } = body as {
         reason?: string;
         notes?: string;
+        evidenceIdsToDelete?: number[];
+        newEvidenceUrls?: string[];
     };
 
+    // Obtener la baja para verificar acceso
     const existing = await prisma.disposal.findUnique({
         where: { id: disposalId },
+        include: { asset: true },
     });
 
     if (!existing) {
         throw http.notFound("Baja no encontrada");
     }
 
-    const updated = await prisma.disposal.update({
-        where: { id: disposalId },
-        data: {
-            ...(reason !== undefined && { reason }),
-            ...(notes !== undefined && { notes }),
-        },
+    // Validar acceso al hotel
+    const hotelId = existing.hotelId ?? existing.asset.currentHotelId;
+    if (!hasHotelAccess(auth.data, hotelId)) {
+        throw http.forbidden("No tienes acceso a esta baja");
+    }
+
+    // Eliminar evidencias marcadas
+    if (evidenceIdsToDelete && evidenceIdsToDelete.length > 0) {
+        await prisma.disposalEvidence.deleteMany({
+            where: {
+                id: { in: evidenceIdsToDelete },
+                disposalId: disposalId,
+            },
+        });
+    }
+
+    // Agregar nuevas evidencias
+    if (newEvidenceUrls && newEvidenceUrls.length > 0) {
+        await prisma.disposalEvidence.createMany({
+            data: newEvidenceUrls.map((url) => ({
+                disposalId: disposalId,
+                url: url,
+                filename: url.split("/").pop() || "evidence",
+            })),
+        });
+    }
+
+    // Actualizar motivo y notas
+    const updated = await s.update(disposalId, {
+        reason,
+        notes,
     });
 
     return NextResponse.json({ disposal: updated });

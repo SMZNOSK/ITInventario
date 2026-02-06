@@ -332,7 +332,14 @@ export const DELETE = withError(async (req: NextRequest, { params }: RouteParams
 
   const loan = await prisma.loan.findUnique({
     where: { id },
-    select: { id: true, endDate: true, teamName: true, deviceName: true, hotelId: true },
+    select: {
+      id: true,
+      endDate: true,
+      returnDate: true,
+      teamName: true,
+      deviceName: true,
+      hotelId: true
+    },
   });
 
   if (!loan) return toNoStoreJson({ error: "Préstamo no encontrado." }, 404);
@@ -343,11 +350,11 @@ export const DELETE = withError(async (req: NextRequest, { params }: RouteParams
     if (hotelDeny) return hotelDeny;
   }
 
-  const now = Date.now();
-  const endMs = loan.endDate?.getTime?.() ?? NaN;
-
-  if (!Number.isFinite(endMs) || endMs > now + 1000) {
-    return toNoStoreJson({ error: "Solo puedes eliminar préstamos ya devueltos." }, 409);
+  // ✅ Validar que el préstamo haya sido marcado como devuelto
+  if (!loan.returnDate) {
+    return toNoStoreJson({
+      error: "Solo puedes eliminar préstamos ya devueltos. Marca el equipo como devuelto primero."
+    }, 409);
   }
 
   // Preferir deviceName (etiqueta del activo). teamName es hostname/etiqueta préstamo.

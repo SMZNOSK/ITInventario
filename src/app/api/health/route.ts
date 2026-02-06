@@ -3,7 +3,6 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
-import { env } from "@/lib/env"; // si no lo usas, puedes leer process.env directamente
 import { withError } from "@/server/utils/withError";
 
 export const GET = withError(async () => {
@@ -26,9 +25,10 @@ export const GET = withError(async () => {
     out.db.ok = false;
   }
 
-  if (env?.PS_SOAP_TIMEOUT_MS) {
-    out.ps.timeoutMs = env.PS_SOAP_TIMEOUT_MS;
+  if (process.env.PS_SOAP_TIMEOUT_MS) {
+    out.ps.timeoutMs = Number(process.env.PS_SOAP_TIMEOUT_MS);
   }
 
   return NextResponse.json(out);
 });
+

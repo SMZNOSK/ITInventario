@@ -2,6 +2,7 @@
 "use client";
 
 import * as React from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Archive,
   Search,
@@ -38,10 +39,12 @@ type AssetInfo = {
 type FormState = {
   assetSerial: string;
   reason: string;
+  customReason: string;
   notes: string;
 };
 
 export default function DisposalsPage() {
+  const searchParams = useSearchParams();
   const [items, setItems] = React.useState<DisposalItem[]>([]);
   const [loading, setLoading] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
@@ -52,6 +55,7 @@ export default function DisposalsPage() {
   const [form, setForm] = React.useState<FormState>({
     assetSerial: "",
     reason: "",
+    customReason: "",
     notes: "",
   });
 
@@ -71,6 +75,7 @@ export default function DisposalsPage() {
   // Bulk disposal state
   const [bulkSerials, setBulkSerials] = React.useState("");
   const [bulkReason, setBulkReason] = React.useState("");
+  const [bulkCustomReason, setBulkCustomReason] = React.useState("");
   const [bulkNotes, setBulkNotes] = React.useState("");
   const [bulkSubmitting, setBulkSubmitting] = React.useState(false);
   const [bulkResult, setBulkResult] = React.useState<{
@@ -104,10 +109,19 @@ export default function DisposalsPage() {
     loadDisposals();
   }, [loadDisposals]);
 
-  // Search for asset by serial
-  async function handleSearchAsset() {
-    const serial = form.assetSerial.trim();
-    if (!serial) {
+  // Auto-populate from URL query params (when redirected from assets page)
+  React.useEffect(() => {
+    const serialFromUrl = searchParams.get("serial");
+    if (serialFromUrl && !form.assetSerial) {
+      setForm((prev) => ({ ...prev, assetSerial: serialFromUrl }));
+      // Trigger search automatically
+      searchAssetBySerial(serialFromUrl);
+    }
+  }, [searchParams]);
+
+  // Search for asset by serial using resolve-serial endpoint
+  async function searchAssetBySerial(serial: string) {
+    if (!serial.trim()) {
       setSearchError("Ingresa el serial del equipo.");
       return;
     }
@@ -117,30 +131,25 @@ export default function DisposalsPage() {
     setAssetInfo(null);
 
     try {
-      // First, find the asset by code/serial
-      const codeRes = await fetch(`/api/assets/by-code/${encodeURIComponent(serial)}`);
-      if (!codeRes.ok) {
-        const text = await codeRes.text();
-        throw new Error(text || "Equipo no encontrado.");
-      }
-      const codeData = await codeRes.json();
-      const assetId = codeData.id;
+      const res = await fetch("/api/disposals/resolve-serial", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serial: serial.trim() }),
+      });
 
-      // Then, get full details including brand, model, hotel
-      const detailRes = await fetch(`/api/assets/${assetId}`);
-      if (!detailRes.ok) {
-        throw new Error("Error al obtener detalles del equipo.");
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || data.message || "Equipo no encontrado.");
       }
-      const detailData = await detailRes.json();
-      const asset = detailData.asset;
 
       setAssetInfo({
-        id: asset.id,
-        serial: asset.serial,
-        typeName: asset.type?.name ?? null,
-        brandName: asset.brand?.name ?? null,
-        modelName: asset.model?.name ?? null,
-        hotelName: asset.currentHotel?.name ?? null,
+        id: data.assetId,
+        serial: data.serial,
+        typeName: data.typeName ?? null,
+        brandName: data.brandName ?? null,
+        modelName: data.modelName ?? null,
+        hotelName: data.hotelName ?? null,
       });
     } catch (err: any) {
       setSearchError(err?.message || "Error al buscar equipo.");
@@ -148,6 +157,11 @@ export default function DisposalsPage() {
     } finally {
       setSearching(false);
     }
+  }
+
+  // Wrapper for search button click
+  function handleSearchAsset() {
+    searchAssetBySerial(form.assetSerial);
   }
 
   function handleChange(field: keyof FormState, value: string) {
@@ -195,6 +209,12 @@ export default function DisposalsPage() {
       return;
     }
 
+    // Validate custom reason if "Otro" is selected
+    if (form.reason === "OTRO" && !form.customReason.trim()) {
+      setError("Debes especificar el motivo personalizado.");
+      return;
+    }
+
     try {
       setSubmitting(true);
 
@@ -224,9 +244,12 @@ export default function DisposalsPage() {
         notesContent = notesContent ? notesContent + evidenceText : evidenceText.trim();
       }
 
+      // Use custom reason if "Otro" is selected
+      const finalReason = form.reason === "OTRO" ? form.customReason.trim() : form.reason.trim();
+
       const payload = {
         assetId: String(assetInfo.id),
-        reason: form.reason.trim(),
+        reason: finalReason,
         notes: notesContent || undefined,
         evidenceUrls: uploadedUrls, // For future DisposalEvidence integration
       };
@@ -253,7 +276,7 @@ export default function DisposalsPage() {
       await loadDisposals();
 
       // Reset form
-      setForm({ assetSerial: "", reason: "", notes: "" });
+      setForm({ assetSerial: "", reason: "", customReason: "", notes: "" });
       setAssetInfo(null);
       setEvidenceImages([]);
       previewUrls.forEach(url => URL.revokeObjectURL(url));
@@ -280,10 +303,15 @@ export default function DisposalsPage() {
     setSuccess(null);
     setBulkResult(null);
 
-    const serials = bulkSerials
-      .split(/[\n,;]+/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
+    // Eliminar duplicados usando Set (case insensitive)
+    const serials = Array.from(
+      new Set(
+        bulkSerials
+          .split(/[\n,;]+/)
+          .map((s) => s.trim().toUpperCase())
+          .filter((s) => s.length > 0)
+      )
+    );
 
     if (serials.length === 0) {
       setError("Ingresa al menos un serial.");
@@ -295,15 +323,24 @@ export default function DisposalsPage() {
       return;
     }
 
+    // Validate custom reason if "Otro" is selected
+    if (bulkReason === "OTRO" && !bulkCustomReason.trim()) {
+      setError("Debes especificar el motivo personalizado.");
+      return;
+    }
+
     try {
       setBulkSubmitting(true);
+
+      // Use custom reason if "Otro" is selected
+      const finalBulkReason = bulkReason === "OTRO" ? bulkCustomReason.trim() : bulkReason.trim();
 
       const res = await fetch("/api/disposals/bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           serials,
-          reason: bulkReason.trim(),
+          reason: finalBulkReason,
           notes: bulkNotes.trim() || undefined,
         }),
       });
@@ -325,6 +362,7 @@ export default function DisposalsPage() {
       // Reset form
       setBulkSerials("");
       setBulkReason("");
+      setBulkCustomReason("");
       setBulkNotes("");
     } catch (err: any) {
       console.error(err);
@@ -398,8 +436,8 @@ export default function DisposalsPage() {
             type="button"
             onClick={() => setActiveTab("single")}
             className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "single"
-                ? "bg-gradient-to-r from-violet-50 to-indigo-50 text-violet-700 shadow-sm border border-violet-100"
-                : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+              ? "bg-gradient-to-r from-violet-50 to-indigo-50 text-violet-700 shadow-sm border border-violet-100"
+              : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
               }`}
           >
             <Laptop className="w-4 h-4" />
@@ -409,8 +447,8 @@ export default function DisposalsPage() {
             type="button"
             onClick={() => setActiveTab("bulk")}
             className={`flex-1 flex items-center justify-center gap-2 px-6 py-3 text-sm font-medium rounded-xl transition-all ${activeTab === "bulk"
-                ? "bg-gradient-to-r from-violet-50 to-indigo-50 text-violet-700 shadow-sm border border-violet-100"
-                : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
+              ? "bg-gradient-to-r from-violet-50 to-indigo-50 text-violet-700 shadow-sm border border-violet-100"
+              : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"
               }`}
           >
             <List className="w-4 h-4" />
@@ -443,7 +481,7 @@ export default function DisposalsPage() {
                 className="w-full px-4 py-3 text-sm border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-red-100 focus:border-red-500 font-mono"
               />
               <p className="text-xs text-slate-500 mt-1">
-                {bulkSerials.split(/[\n,;]+/).filter((s) => s.trim()).length} serial(es) detectados
+                {new Set(bulkSerials.split(/[\n,;]+/).map((s) => s.trim().toUpperCase()).filter((s) => s.length > 0)).size} serial(es) detectados (sin duplicados)
               </p>
             </div>
             <div>
@@ -451,18 +489,30 @@ export default function DisposalsPage() {
                 <AlertTriangle className="w-4 h-4 inline mr-1 text-amber-500" />
                 Motivo *
               </label>
-              <select
-                value={bulkReason}
-                onChange={(e) => setBulkReason(e.target.value)}
-                className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-red-100 focus:border-red-500"
-              >
-                <option value="">Selecciona un motivo...</option>
-                <option value="DAÑO FÍSICO">Daño físico</option>
-                <option value="DAÑO POR OBSOLECENCIA">Daño por obsolescencia</option>
-                <option value="ROBO">Robo</option>
-                <option value="EXTRAVÍO">Extravío</option>
-                <option value="OTRO">Otro</option>
-              </select>
+              <div className={bulkReason === "OTRO" ? "grid grid-cols-2 gap-3" : ""}>
+                <select
+                  value={bulkReason}
+                  onChange={(e) => setBulkReason(e.target.value)}
+                  className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                >
+                  <option value="">Selecciona un motivo...</option>
+                  <option value="DAÑO FÍSICO">Daño físico</option>
+                  <option value="DAÑO POR OBSOLECENCIA">Daño por obsolescencia</option>
+                  <option value="ROBO">Robo</option>
+                  <option value="EXTRAVÍO">Extravío</option>
+                  <option value="OTRO">Otro</option>
+                </select>
+
+                {bulkReason === "OTRO" && (
+                  <input
+                    type="text"
+                    value={bulkCustomReason}
+                    onChange={(e) => setBulkCustomReason(e.target.value)}
+                    placeholder="Escribe el motivo personalizado..."
+                    className="w-full px-4 py-2.5 text-sm border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                  />
+                )}
+              </div>
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">
@@ -586,20 +636,32 @@ export default function DisposalsPage() {
                 <AlertTriangle className="w-4 h-4 text-slate-400" />
                 Motivo *
               </label>
-              <select
-                value={form.reason}
-                onChange={(e) => handleChange("reason", e.target.value)}
-                className="w-full max-w-md rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-red-100 focus:border-red-500 cursor-pointer"
-              >
-                <option value="">Selecciona un motivo...</option>
-                <option value="DAÑO POR OBSOLECENCIA">Daño por obsolecencia</option>
-                <option value="DAÑO FÍSICO">Daño físico</option>
-                <option value="DAÑO POR ACCIDENTE">Daño por accidente</option>
-                <option value="ROBO">Robo</option>
-                <option value="EXTRAVÍO">Extravío</option>
-                <option value="VENTA O DISPOSICIÓN">Venta o disposición</option>
-                <option value="OTRO">Otro</option>
-              </select>
+              <div className={form.reason === "OTRO" ? "grid grid-cols-2 gap-3" : ""}>
+                <select
+                  value={form.reason}
+                  onChange={(e) => handleChange("reason", e.target.value)}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-red-100 focus:border-red-500 cursor-pointer"
+                >
+                  <option value="">Selecciona un motivo...</option>
+                  <option value="DAÑO POR OBSOLECENCIA">Daño por obsolecencia</option>
+                  <option value="DAÑO FÍSICO">Daño físico</option>
+                  <option value="DAÑO POR ACCIDENTE">Daño por accidente</option>
+                  <option value="ROBO">Robo</option>
+                  <option value="EXTRAVÍO">Extravío</option>
+                  <option value="VENTA O DISPOSICIÓN">Venta o disposición</option>
+                  <option value="OTRO">Otro</option>
+                </select>
+
+                {form.reason === "OTRO" && (
+                  <input
+                    type="text"
+                    value={form.customReason}
+                    onChange={(e) => handleChange("customReason", e.target.value)}
+                    placeholder="Escribe el motivo personalizado..."
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm focus:bg-white focus:ring-2 focus:ring-red-100 focus:border-red-500"
+                  />
+                )}
+              </div>
             </div>
 
             <div>

@@ -151,184 +151,204 @@ export default function LoanEditPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-slate-900">
-            {loan
-              ? `Editar préstamo de ${loan.collaboratorName || loan.collaboratorId}`
-              : "Editar préstamo"}
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">
-            Ajusta la información del préstamo y guarda los cambios.
-          </p>
-        </div>
+      <div className="mb-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900">
+              {loan
+                ? `Editar préstamo de ${loan.collaboratorName || loan.collaboratorId}`
+                : "Editar préstamo"}
+            </h1>
+            <p className="mt-2 text-sm text-slate-600">
+              Ajusta la información del préstamo y guarda los cambios.
+            </p>
+          </div>
 
-        <button
-          type="button"
-          onClick={() =>
-            router.push(loan ? `/equipo/loans/${loan.id}` : "/equipo/loans")
-          }
-          className="inline-flex items-center gap-1 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Volver al detalle
-        </button>
+          <button
+            type="button"
+            onClick={() =>
+              router.push(loan ? `/equipo/loans/${loan.id}` : "/equipo/loans")
+            }
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Volver al detalle
+          </button>
+        </div>
       </div>
 
       {/* Alertas */}
       {error && (
-        <div className="rounded-xl border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-800">
-          {error}
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <strong className="font-semibold">Error:</strong> {error}
         </div>
       )}
       {success && (
-        <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
-          {success}
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+          <strong className="font-semibold">Éxito:</strong> {success}
         </div>
       )}
 
       {/* Formulario */}
-      <section className="rounded-3xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
-        {loading || !loan ? (
-          <p className="text-sm text-slate-500">Cargando información del préstamo...</p>
-        ) : (
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Datos no editables del colaborador */}
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase text-slate-500">
-                  Número de colaborador
-                </p>
-                <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-800">
-                  {loan.collaboratorId}
-                </p>
+      <section className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+        <div className="border-b border-slate-200 bg-gradient-to-r from-indigo-50 to-violet-50 px-6 py-4">
+          <h2 className="text-lg font-semibold text-slate-900">Información del Préstamo</h2>
+        </div>
+        <div className="p-6">
+          {loading || !loan ? (
+            <p className="text-sm text-slate-500">Cargando información del préstamo...</p>
+          ) : (
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Datos no editables del colaborador */}
+              <div>
+                <h3 className="text-sm font-semibold text-slate-700 mb-3">Información del Colaborador</h3>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium uppercase text-slate-500">
+                      Número de colaborador
+                    </label>
+                    <div className="rounded-lg bg-slate-50 px-3 py-2.5 text-sm text-slate-800 border border-slate-200">
+                      {loan.collaboratorId}
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium uppercase text-slate-500">Nombre</label>
+                    <div className="rounded-lg bg-slate-50 px-3 py-2.5 text-sm text-slate-800 border border-slate-200">
+                      {loan.collaboratorName || "—"}
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium uppercase text-slate-500">Correo</label>
+                    <div className="rounded-lg bg-slate-50 px-3 py-2.5 text-sm text-slate-800 border border-slate-200">
+                      {loan.collaboratorEmail || "—"}
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium uppercase text-slate-500">
+                      Gerencia / departamento
+                    </label>
+                    <div className="rounded-lg bg-slate-50 px-3 py-2.5 text-sm text-slate-800 border border-slate-200">
+                      {loan.departmentName || "—"}
+                    </div>
+                  </div>
+                </div>
               </div>
-              <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase text-slate-500">Nombre</p>
-                <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-800">
-                  {loan.collaboratorName || "—"}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase text-slate-500">Correo</p>
-                <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-800">
-                  {loan.collaboratorEmail || "—"}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs font-semibold uppercase text-slate-500">
-                  Gerencia / departamento
-                </p>
-                <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-800">
-                  {loan.departmentName || "—"}
-                </p>
-              </div>
-            </div>
 
-            {/* Campos editables */}
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-1">
-                <label
-                  htmlFor="teamName"
-                  className="text-xs font-semibold uppercase text-slate-500"
-                >
-                  Nombre del equipo
+              {/* Campos editables */}
+              <div>
+                <h3 className="text-sm font-semibold text-slate-700 mb-3">Datos del Préstamo</h3>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="teamName"
+                      className="text-xs font-medium uppercase text-slate-500"
+                    >
+                      Nombre del equipo
+                    </label>
+                    <input
+                      id="teamName"
+                      type="text"
+                      value={teamName}
+                      onChange={(e) => setTeamName(e.target.value.toUpperCase())}
+                      className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-colors"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="platformId"
+                      className="text-xs font-medium uppercase text-slate-500"
+                    >
+                      Plataforma
+                    </label>
+                    <select
+                      id="platformId"
+                      value={platformId ?? ""}
+                      onChange={(e) =>
+                        setPlatformId(e.target.value ? Number.parseInt(e.target.value, 10) : null)
+                      }
+                      className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-colors"
+                    >
+                      <option value="">Sin plataforma</option>
+                      {platforms.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="startDate"
+                      className="text-xs font-medium uppercase text-slate-500"
+                    >
+                      Fecha préstamo
+                    </label>
+                    <input
+                      id="startDate"
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-colors"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="endDate"
+                      className="text-xs font-medium uppercase text-slate-500"
+                    >
+                      Fecha devolución
+                    </label>
+                    <input
+                      id="endDate"
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm text-slate-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-colors"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="comments" className="text-xs font-medium uppercase text-slate-500">
+                  Descripción / comentarios
                 </label>
-                <input
-                  id="teamName"
-                  type="text"
-                  value={teamName}
-                  onChange={(e) => setTeamName(e.target.value.toUpperCase())}
-                  className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-[#254D6E] focus:bg-white focus:outline-none"
-                  required
+                <textarea
+                  id="comments"
+                  rows={4}
+                  value={comments}
+                  onChange={(e) => setComments(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-colors resize-none"
+                  placeholder="Describe brevemente el motivo del préstamo o notas importantes."
                 />
               </div>
 
-              <div className="space-y-1">
-                <label
-                  htmlFor="platformId"
-                  className="text-xs font-semibold uppercase text-slate-500"
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => router.push(loan ? `/equipo/loans/${loan.id}` : "/equipo/loans")}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-5 py-2.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
                 >
-                  Plataforma
-                </label>
-                <select
-                  id="platformId"
-                  value={platformId ?? ""}
-                  onChange={(e) =>
-                    setPlatformId(e.target.value ? Number.parseInt(e.target.value, 10) : null)
-                  }
-                  className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 focus:border-[#254D6E] focus:bg-white focus:outline-none"
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
                 >
-                  <option value="">Sin plataforma</option>
-                  {platforms.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
+                  <Save className="h-4 w-4" />
+                  {saving ? "Guardando..." : "Guardar cambios"}
+                </button>
               </div>
-
-              <div className="space-y-1">
-                <label
-                  htmlFor="startDate"
-                  className="text-xs font-semibold uppercase text-slate-500"
-                >
-                  Fecha préstamo
-                </label>
-                <input
-                  id="startDate"
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 focus:border-[#254D6E] focus:bg-white focus:outline-none"
-                  required
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label
-                  htmlFor="endDate"
-                  className="text-xs font-semibold uppercase text-slate-500"
-                >
-                  Fecha devolución
-                </label>
-                <input
-                  id="endDate"
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="h-10 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-800 focus:border-[#254D6E] focus:bg-white focus:outline-none"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label htmlFor="comments" className="text-xs font-semibold uppercase text-slate-500">
-                Descripción / comentarios
-              </label>
-              <textarea
-                id="comments"
-                rows={3}
-                value={comments}
-                onChange={(e) => setComments(e.target.value)}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-[#254D6E] focus:bg-white focus:outline-none"
-                placeholder="Describe brevemente el motivo del préstamo o notas importantes."
-              />
-            </div>
-
-            <div className="flex justify-end">
-              <button
-                type="submit"
-                disabled={saving}
-                className="inline-flex items-center gap-2 rounded-2xl bg-[#254D6E] px-5 py-2 text-xs font-semibold text-white shadow-sm hover:bg-[#1d3f59] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <Save className="h-4 w-4" />
-                {saving ? "Guardando..." : "Guardar cambios"}
-              </button>
-            </div>
-          </form>
-        )}
+            </form>
+          )}
+        </div>
       </section>
     </div>
   );

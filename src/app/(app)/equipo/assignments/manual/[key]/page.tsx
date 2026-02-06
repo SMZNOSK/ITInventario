@@ -4,6 +4,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
+import { useAuth } from "@/app/providers";
 import { AssetPickerModal, type AssetRow } from "@/app/_ui/AssetPickerModal";
 import {
   ArrowLeft,
@@ -20,6 +21,7 @@ import {
   ClipboardList,
   Monitor,
   Mail,
+  ArrowRightLeft,
 } from "lucide-react";
 
 /* ========= Tipos ========= */
@@ -144,6 +146,14 @@ export default function ManualResguardoPage() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+
+  // Transfer state
+  const { fetchJSON } = useAuth();
+  const [transferModalOpen, setTransferModalOpen] = useState(false);
+  const [hotels, setHotels] = useState<Array<{ id: number; name: string }>>([]);
+  const [selectedDestHotel, setSelectedDestHotel] = useState<number | null>(null);
+  const [transferring, setTransferring] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
 
   async function load() {
     try {
@@ -314,6 +324,63 @@ export default function ManualResguardoPage() {
     }
   }
 
+  async function loadHotels() {
+    try {
+      const res = await fetch("/api/hotels/active", {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        throw new Error(`Error ${res.status}`);
+      }
+
+      const data = await res.json();
+      setHotels(data.items ?? []);
+    } catch (e: any) {
+      console.error("Error cargando hoteles:", e);
+      setTransferError("No se pudieron cargar los hoteles.");
+    }
+  }
+
+  async function openTransferModal() {
+    setTransferModalOpen(true);
+    setTransferError(null);
+    setSelectedDestHotel(null);
+    await loadHotels();
+  }
+
+  async function handleInitiateTransfer() {
+    if (!selectedDestHotel) {
+      setTransferError("Selecciona un hotel destino.");
+      return;
+    }
+
+    setTransferring(true);
+    setTransferError(null);
+
+    try {
+      const payload = {
+        collaboratorKey: key,
+        collaboratorName: header.collaboratorName,
+        destHotelId: selectedDestHotel,
+      };
+
+      const response = await fetchJSON("/api/assignments/manual/transfers", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      alert(response.message || "Transferencia iniciada exitosamente.");
+      setTransferModalOpen(false);
+    } catch (e: any) {
+      setTransferError(e?.message || "No se pudo iniciar la transferencia.");
+    } finally {
+      setTransferring(false);
+    }
+  }
+
   async function handleSelectAssetForNewAssignment(asset: AssetRow) {
     const assetCode = pickAssetCodeFromPicker(asset);
     if (!assetCode) {
@@ -380,13 +447,6 @@ export default function ManualResguardoPage() {
           >
             <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
             Refrescar
-          </button>
-          <button
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-slate-800 rounded-lg hover:bg-slate-900"
-          >
-            <Printer className="w-4 h-4" />
-            Imprimir
           </button>
         </div>
       </header>
@@ -468,8 +528,8 @@ export default function ManualResguardoPage() {
                     <p className="text-xs font-medium text-slate-500 uppercase">Estado</p>
                     <span
                       className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${stats.hasAssigned
-                          ? "bg-emerald-100 text-emerald-800"
-                          : "bg-slate-100 text-slate-600"
+                        ? "bg-emerald-100 text-emerald-800"
+                        : "bg-slate-100 text-slate-600"
                         }`}
                     >
                       {stats.hasAssigned ? "Con equipos" : "Sin equipos"}
@@ -497,7 +557,16 @@ export default function ManualResguardoPage() {
                 </div>
 
                 {!printMode && (
-                  <div className="ml-auto print:hidden">
+                  <div className="ml-auto flex gap-3 print:hidden">
+                    {stats.hasAssigned && (
+                      <button
+                        onClick={openTransferModal}
+                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700"
+                      >
+                        <ArrowRightLeft className="w-4 h-4" />
+                        Transferir Equipos
+                      </button>
+                    )}
                     <button
                       onClick={() => setPickerOpen(true)}
                       className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700"
@@ -590,8 +659,8 @@ export default function ManualResguardoPage() {
                         <td className="px-4 py-4">
                           <span
                             className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${st === "ASIGNADO"
-                                ? "bg-emerald-100 text-emerald-800"
-                                : "bg-slate-100 text-slate-600"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-slate-100 text-slate-600"
                               }`}
                           >
                             {st === "ASIGNADO" ? "Asignado" : "Devuelto"}
@@ -677,6 +746,97 @@ export default function ManualResguardoPage() {
         busy={creating}
         externalError={createError}
       />
+
+      {/* Transfer Modal */}
+      {transferModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+          <div className="relative max-h-[90vh] w-full max-w-2xl overflow-auto rounded-3xl bg-white shadow-xl p-6">
+            <h2 className="text-xl font-semibold text-slate-800 mb-4">
+              Transferir Asignaciones del Colaborador
+            </h2>
+            <p className="text-sm text-slate-600 mb-6">
+              Transfiere todas las asignaciones activas a otro hotel
+            </p>
+
+            {/* Collaborator Info */}
+            <div className="bg-slate-50 rounded-lg p-4 mb-6">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 bg-amber-100 rounded-lg">
+                  <User className="w-5 h-5 text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-slate-500 uppercase">Nombre</p>
+                  <p className="text-sm font-semibold text-slate-800">{header.collaboratorName}</p>
+                  {header.collaboratorEmail && (
+                    <p className="text-xs text-slate-500">{header.collaboratorEmail}</p>
+                  )}
+                </div>
+              </div>
+              <div className="text-sm text-slate-600">
+                <Building2 className="w-4 h-4 inline mr-1" />
+                Hotel actual: <span className="font-medium">{header.hotel}</span>
+              </div>
+            </div>
+
+            {/* Hotel Selection */}
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Seleccionar hotel destino
+              </label>
+              <select
+                value={selectedDestHotel || ""}
+                onChange={(e) => setSelectedDestHotel(Number(e.target.value) || null)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              >
+                <option value="">Seleccionar hotel destino</option>
+                {hotels
+                  .filter((h) => h.name !== header.hotel)
+                  .map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.name}
+                    </option>
+                  ))}
+              </select>
+            </div>
+
+            {/* Equipment Preview */}
+            <div className="mb-6">
+              <p className="text-sm font-medium text-slate-700 mb-2">
+                {stats.assigned} equipo(s) asignado(s) será(n) transferido(s)
+              </p>
+            </div>
+
+            {transferError && (
+              <div className="mb-4 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+                {transferError}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setTransferModalOpen(false)}
+                disabled={transferring}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleInitiateTransfer}
+                disabled={transferring || !selectedDestHotel}
+                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-violet-600 rounded-lg hover:bg-violet-700 disabled:opacity-50"
+              >
+                {transferring ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <ArrowRightLeft className="w-4 h-4" />
+                )}
+                {transferring ? "Transfiriendo..." : "Confirmar Transferencia"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

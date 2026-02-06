@@ -86,33 +86,68 @@ export const POST = withError(async (req: NextRequest, { params }: RouteParams) 
   // Extraer información del activo desde deviceName (donde guardamos "LAP-000001 · S/N: POIUHGVB11")
   const assetInfo = extractAssetInfoFromDeviceName((loan as any).deviceName);
 
-  await prisma.$transaction(async (tx) => {
-    // 1) Marcar devolución hoy
-    await tx.loan.update({
-      where: { id },
-      data: { endDate: now },
+  // Si no se pudo extraer serial del deviceName, intentar con teamName
+  if (!assetInfo.serial && loan.teamName) {
+    const fallbackInfo = extractAssetInfoFromDeviceName(loan.teamName);
+    if (fallbackInfo.serial) {
+      assetInfo.serial = fallbackInfo.serial;
+    }
+    if (!assetInfo.assetId && fallbackInfo.assetId) {
+      assetInfo.assetId = fallbackInfo.assetId;
+    }
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      // 1) Marcar devolución hoy estableciendo returnDate
+      await tx.loan.update({
+        where: { id },
+        data: { returnDate: now },
+      });
+
+      // 2) Regresar equipo a ALTA - buscar por SERIAL primero (es la fuente de verdad)
+      let updated = false;
+
+      if (assetInfo.serial) {
+        // Buscar por serial es más confiable (el código LAP-000001 puede no coincidir con el ID real)
+        const result = await tx.asset.updateMany({
+          where: { serial: assetInfo.serial, status: "ASIGNADO" },
+          data: { status: "ALTA" },
+        });
+        updated = result.count > 0;
+      }
+
+      // Fallback: si no se encontró por serial, intentar por assetId
+      if (!updated && assetInfo.assetId) {
+        const result = await tx.asset.updateMany({
+          where: { id: assetInfo.assetId, status: "ASIGNADO" },
+          data: { status: "ALTA" },
+        });
+        updated = result.count > 0;
+      }
+
+      // Si no se pudo actualizar el activo, aún así marcar el préstamo como devuelto
+      // pero registrar en consola para diagnóstico
+      if (!updated) {
+        console.warn(`[LOAN RECOVER] No se pudo actualizar activo para préstamo ${id}:`, {
+          loanId: id,
+          deviceName: loan.deviceName,
+          teamName: loan.teamName,
+          extractedSerial: assetInfo.serial,
+          extractedAssetId: assetInfo.assetId,
+        });
+      }
     });
 
-    // 2) Regresar equipo a ALTA - buscar por SERIAL primero (es la fuente de verdad)
-    let updated = false;
-
-    if (assetInfo.serial) {
-      // Buscar por serial es más confiable (el código LAP-000001 puede no coincidir con el ID real)
-      const result = await tx.asset.updateMany({
-        where: { serial: assetInfo.serial, status: "ASIGNADO" },
-        data: { status: "ALTA" },
-      });
-      updated = result.count > 0;
-    }
-
-    // Fallback: si no se encontró por serial, intentar por assetId
-    if (!updated && assetInfo.assetId) {
-      await tx.asset.updateMany({
-        where: { id: assetInfo.assetId, status: "ASIGNADO" },
-        data: { status: "ALTA" },
-      });
-    }
-  });
-
-  return toNoStoreJson({ ok: true });
+    return toNoStoreJson({ ok: true, assetUpdated: true });
+  } catch (error) {
+    console.error(`[LOAN RECOVER ERROR] Failed to mark loan ${id} as returned:`, error);
+    // Aún así devolver success si el error no es crítico
+    // El préstamo se marcó como devuelto, solo no se actualizó el activo
+    return toNoStoreJson({
+      ok: true,
+      assetUpdated: false,
+      warning: "Préstamo marcado como devuelto, pero no se pudo actualizar el estado del activo"
+    });
+  }
 });

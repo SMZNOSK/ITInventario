@@ -148,3 +148,23 @@ export function ensureHotelAccess(
   }
   return null;
 }
+
+/**
+ * Devuelve los IDs de hoteles a los que el usuario tiene acceso.
+ * Para ADMIN devuelve null (indica acceso a todos).
+ * Para otros usuarios devuelve el array de hotels.
+ */
+export function getAllowedHotelIds(user: UserPayload): number[] | null {
+  if (user.role === "ADMIN") return null;
+  return user.hotels;
+}
+
+/**
+ * Verifica si el usuario tiene acceso a un hotel específico.
+ * ADMIN tiene acceso a todos. Otros deben tenerlo en su lista.
+ */
+export function hasHotelAccess(user: UserPayload, hotelId: number | null | undefined): boolean {
+  if (user.role === "ADMIN") return true;
+  if (hotelId == null) return false;
+  return user.hotels.includes(hotelId);
+}

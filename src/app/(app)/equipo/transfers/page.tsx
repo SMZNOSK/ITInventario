@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/providers";
 import { ArrowRight, X, Send, RefreshCw, Package, Monitor, Layers, CheckCircle, AlertCircle, Info } from "lucide-react";
 
@@ -49,6 +50,7 @@ type TransferMode = "individual" | "multiple";
 
 export default function TransfersPage() {
     const { fetchJSON, user } = useAuth();
+    const searchParams = useSearchParams();
 
     // Tab mode
     const [mode, setMode] = useState<TransferMode>("individual");
@@ -105,6 +107,34 @@ export default function TransfersPage() {
         loadHotels();
         loadMyPending();
     }, [loadHotels, loadMyPending]);
+
+    // Auto-populate from URL query params (when redirected from assets page)
+    useEffect(() => {
+        const serialFromUrl = searchParams.get("serial");
+        if (serialFromUrl && !serialInput && !searchedAsset) {
+            setSerialInput(serialFromUrl.toUpperCase());
+            // Trigger automatic search
+            (async () => {
+                setSearchLoading(true);
+                setSearchError(null);
+                try {
+                    const res = await fetchJSON<{ ok: boolean; asset: Asset; error?: string }>(
+                        `/api/transfers/assets/search?serial=${encodeURIComponent(serialFromUrl)}`
+                    );
+                    if (res.asset) {
+                        setSearchedAsset(res.asset);
+                        setDestHotelId(null);
+                    } else {
+                        setSearchError("Equipo no encontrado");
+                    }
+                } catch (err: any) {
+                    setSearchError(err?.message ?? "Error buscando equipo");
+                } finally {
+                    setSearchLoading(false);
+                }
+            })();
+        }
+    }, [searchParams, fetchJSON]);
 
     // Reset messages on mode change
     useEffect(() => {
@@ -181,10 +211,13 @@ export default function TransfersPage() {
             return;
         }
 
-        const serials = bulkSerials
+        // Eliminar duplicados usando Set para evitar contar el mismo serial múltiples veces
+        const serialLines = bulkSerials
             .split("\n")
             .map((s) => s.trim().toUpperCase())
             .filter((s) => s.length > 0);
+
+        const serials = Array.from(new Set(serialLines));
 
         if (serials.length === 0) {
             setError("Ingresa al menos un número de serie");
@@ -261,10 +294,14 @@ export default function TransfersPage() {
         (h) => searchedAsset && h.id !== searchedAsset.currentHotelId
     );
 
-    // Contar líneas en bulk textarea
-    const serialCount = bulkSerials
-        .split("\n")
-        .filter((s) => s.trim().length > 0).length;
+    // Contar líneas en bulk textarea (solo seriales únicos, sin duplicados)
+    const uniqueSerials = new Set(
+        bulkSerials
+            .split("\n")
+            .map((s) => s.trim().toUpperCase())
+            .filter((s) => s.length > 0)
+    );
+    const serialCount = uniqueSerials.size;
 
     return (
         <div className="p-6 max-w-4xl mx-auto space-y-8">
@@ -298,8 +335,8 @@ export default function TransfersPage() {
                 <button
                     onClick={() => setMode("individual")}
                     className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${mode === "individual"
-                            ? "bg-blue-600 text-white shadow-sm"
-                            : "text-slate-600 hover:bg-slate-100"
+                        ? "bg-blue-600 text-white shadow-sm"
+                        : "text-slate-600 hover:bg-slate-100"
                         }`}
                 >
                     <Monitor className="w-4 h-4" />
@@ -308,8 +345,8 @@ export default function TransfersPage() {
                 <button
                     onClick={() => setMode("multiple")}
                     className={`inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-all ${mode === "multiple"
-                            ? "bg-blue-600 text-white shadow-sm"
-                            : "text-slate-600 hover:bg-slate-100"
+                        ? "bg-blue-600 text-white shadow-sm"
+                        : "text-slate-600 hover:bg-slate-100"
                         }`}
                 >
                     <Layers className="w-4 h-4" />

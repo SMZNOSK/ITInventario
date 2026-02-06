@@ -2,6 +2,7 @@
 "use client";
 
 import * as React from "react";
+import { Layers, RefreshCw, Plus, Edit, Trash2, Search, Check, X } from "lucide-react";
 
 type Tipo = {
   id: number;
@@ -15,6 +16,7 @@ export default function TypesPage() {
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [infoMsg, setInfoMsg] = React.useState<string | null>(null);
+  const [search, setSearch] = React.useState("");
 
   // edición inline
   const [editId, setEditId] = React.useState<number | null>(null);
@@ -34,10 +36,10 @@ export default function TypesPage() {
       const raw: any[] = Array.isArray((data as any).tipos)
         ? (data as any).tipos
         : Array.isArray((data as any).items)
-        ? (data as any).items
-        : Array.isArray(data)
-        ? (data as any)
-        : [];
+          ? (data as any).items
+          : Array.isArray(data)
+            ? (data as any)
+            : [];
 
       const list: Tipo[] = raw
         .filter((t) => t && typeof t.id === "number")
@@ -45,7 +47,6 @@ export default function TypesPage() {
           id: t.id,
           name: String(t.name ?? "").trim() || `#${t.id}`,
         }))
-        // ordena por id para que coincida con lo que ves en Prisma
         .sort((a, b) => a.id - b.id);
 
       setTipos(list);
@@ -63,8 +64,7 @@ export default function TypesPage() {
   }, []);
 
   /* ========== CREAR TIPO ========== */
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleCreate() {
     const value = nombre.trim();
     if (!value || saving) return;
 
@@ -182,129 +182,203 @@ export default function TypesPage() {
       console.error("Error al eliminar tipo", e);
       setError(
         e?.message ||
-          "No se pudo eliminar el tipo (posiblemente está siendo usado)."
+        "No se pudo eliminar el tipo (posiblemente está siendo usado)."
       );
     } finally {
       setSaving(false);
     }
   }
 
+  const filteredTipos = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return tipos;
+    return tipos.filter((t) =>
+      t.name.toLowerCase().includes(q) ||
+      String(t.id).includes(q)
+    );
+  }, [tipos, search]);
+
   const canCreate = nombre.trim().length > 0 && !saving;
 
   /* ========== RENDER ========== */
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6">
-      <h1 className="mb-6 text-center text-2xl font-bold">Tipos</h1>
-
-      <form
-        onSubmit={handleCreate}
-        className="mb-4 flex gap-3"
-      >
-        <input
-          className="flex-1 rounded-lg border px-3 py-2"
-          placeholder="Nombre del tipo"
-          value={nombre}
-          onChange={(e) => setNombre(e.target.value)}
-        />
+    <div className="p-6 max-w-5xl mx-auto space-y-6">
+      {/* Header */}
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-800 flex items-center gap-3">
+            <Layers className="w-7 h-7 text-indigo-600" />
+            Tipos
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Administra los tipos de equipos del inventario.
+          </p>
+        </div>
         <button
-          type="submit"
-          disabled={!canCreate}
-          className="rounded-lg px-4 py-2 text-white disabled:opacity-40 disabled:cursor-not-allowed bg-slate-900 hover:bg-slate-800"
+          onClick={loadTipos}
+          disabled={loading}
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50"
         >
-          {saving ? "Guardando..." : "Agregar"}
+          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+          Actualizar
         </button>
-      </form>
+      </header>
 
+      {/* Error / Success */}
       {error && (
-        <p className="mb-2 text-sm text-red-600">{error}</p>
+        <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+          {error}
+        </div>
       )}
       {infoMsg && (
-        <p className="mb-2 text-sm text-emerald-700">{infoMsg}</p>
+        <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {infoMsg}
+        </div>
       )}
 
-      <div className="rounded-xl border bg-white">
-        <div className="border-b px-4 py-2 text-xs font-semibold tracking-wide text-slate-500">
-          TIPOS REGISTRADOS
+      {/* Formulario de creación */}
+      <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+        <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-4">
+          Agregar nuevo tipo
+        </h2>
+        <div className="flex gap-3">
+          <div className="relative flex-1">
+            <Layers className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+              placeholder="Nombre del tipo"
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+            />
+          </div>
+          <button
+            onClick={handleCreate}
+            disabled={!canCreate}
+            className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Plus className="w-4 h-4" />
+            {saving ? "Guardando..." : "Agregar"}
+          </button>
+        </div>
+      </section>
+
+      {/* Lista */}
+      <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+              Tipos Registrados
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {filteredTipos.length} {filteredTipos.length === 1 ? "tipo" : "tipos"} registrados
+            </p>
+          </div>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar..."
+              className="pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+            />
+          </div>
         </div>
 
-        {loading ? (
-          <div className="p-4 text-center text-sm text-slate-500">
-            Cargando…
-          </div>
-        ) : tipos.length === 0 ? (
-          <div className="p-4 text-center text-sm text-slate-500">
-            Sin registros
-          </div>
-        ) : (
-          <ul className="divide-y">
-            {tipos.map((t) => {
-              const isEditing = editId === t.id;
-              return (
-                <li
-                  key={t.id}
-                  className="flex items-center justify-between px-4 py-2 text-sm"
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs text-slate-500">
-                      #{t.id}
-                    </span>
+        <div className="divide-y divide-slate-100">
+          {loading && (
+            <div className="px-6 py-12 text-center">
+              <RefreshCw className="w-8 h-8 animate-spin text-slate-400 mx-auto" />
+              <p className="mt-2 text-sm text-slate-500">Cargando tipos...</p>
+            </div>
+          )}
 
+          {!loading && filteredTipos.length === 0 && (
+            <div className="px-6 py-12 text-center">
+              <Layers className="w-12 h-12 text-slate-300 mx-auto" />
+              <h3 className="mt-4 text-lg font-medium text-slate-600">Sin tipos</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                {search.trim() ? "No hay tipos que coincidan con la búsqueda." : "Agrega tu primer tipo arriba."}
+              </p>
+            </div>
+          )}
+
+          {!loading && filteredTipos.map((t) => {
+            const isEditing = editId === t.id;
+            return (
+              <div
+                key={t.id}
+                className="flex items-center justify-between px-6 py-4 hover:bg-slate-50"
+              >
+                <div className="flex items-center gap-3 flex-1">
+                  <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <div className="flex items-center gap-3 flex-1">
+                    <span className="text-xs text-slate-500 font-mono">#{t.id}</span>
                     {isEditing ? (
                       <input
-                        className="rounded-lg border px-3 py-1 text-sm"
+                        type="text"
+                        className="flex-1 px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                         value={editNombre}
                         onChange={(e) => setEditNombre(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleSaveEdit();
+                          if (e.key === "Escape") cancelEdit();
+                        }}
+                        autoFocus
                       />
                     ) : (
-                      <span className="font-semibold text-slate-900">
-                        {t.name}
-                      </span>
+                      <span className="text-sm font-medium text-slate-800">{t.name}</span>
                     )}
                   </div>
+                </div>
 
-                  <div className="flex gap-2">
-                    {isEditing ? (
-                      <>
-                        <button
-                          type="button"
-                          onClick={handleSaveEdit}
-                          className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-slate-50"
-                        >
-                          Guardar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={cancelEdit}
-                          className="rounded-md border px-3 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                        >
-                          Cancelar
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => startEdit(t)}
-                          className="rounded-md border px-3 py-1 text-xs font-medium hover:bg-slate-50"
-                        >
-                          Editar
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(t.id)}
-                          className="rounded-md border border-red-300 px-3 py-1 text-xs font-medium text-red-700 hover:bg-red-50"
-                        >
-                          Eliminar
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+                <div className="flex items-center gap-2">
+                  {isEditing ? (
+                    <>
+                      <button
+                        onClick={handleSaveEdit}
+                        disabled={saving}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 disabled:opacity-50"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        Guardar
+                      </button>
+                      <button
+                        onClick={cancelEdit}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        Cancelar
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => startEdit(t)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
+                      >
+                        <Edit className="w-3.5 h-3.5" />
+                        Editar
+                      </button>
+                      <button
+                        onClick={() => handleDelete(t.id)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        Eliminar
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
     </div>
   );
 }

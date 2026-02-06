@@ -21,6 +21,11 @@ const ServerEnvSchema = z.object({
   PS_BIENES_CIA_NS: z.string().optional(),
   PS_ALTA_COLAB_ACTION: z.string().optional(),
   PS_BIENES_CIA_ACTION: z.string().optional(),
+  // Servicio de consulta de bienes (PH_BIENES_POR_EMPLEADO)
+  PS_BIENES_EMPL_ENDPOINT: z.string().url().optional(),
+  PS_BIENES_EMPL_NS: z.string().optional(),
+  PS_BIENES_EMPL_ACTION: z.string().optional(),
+  // Auth SOAP
   PS_SOAP_AUTH: z.enum(["basic", "none"]).default("basic"),
   PS_SOAP_USER: z.string().optional(),
   PS_SOAP_PASS: z.string().optional(),

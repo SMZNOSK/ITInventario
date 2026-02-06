@@ -2,12 +2,13 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useAuth } from "@/app/providers";
+import { useAuth } from "@/app/providers/AuthProvider";
+import { Building2, RefreshCw, Plus, Edit, Power, Trash2, Search } from "lucide-react";
 
 type Hotel = {
   id: number;
   name: string;
-  active: boolean;          // ← en tu API final es "active" (no "isActive")
+  active: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -24,6 +25,8 @@ export default function AdminHotelsPage() {
   const [formMode, setFormMode] = useState<FormMode>("create");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [search, setSearch] = useState("");
 
   async function loadHotels() {
     try {
@@ -50,8 +53,8 @@ export default function AdminHotelsPage() {
     setName("");
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSubmit(e?: React.FormEvent) {
+    e?.preventDefault();
     setError(null);
 
     const trimmed = name.trim();
@@ -61,6 +64,7 @@ export default function AdminHotelsPage() {
     }
 
     try {
+      setBusy(true);
       if (formMode === "create") {
         const res = await fetch("/api/admin/hotels", {
           method: "POST",
@@ -100,6 +104,8 @@ export default function AdminHotelsPage() {
     } catch (err: any) {
       console.error(err);
       setError(err?.message ?? "Error al guardar el hotel");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -150,121 +156,165 @@ export default function AdminHotelsPage() {
     }
   }
 
-  return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-semibold mb-4">Administración de hoteles</h1>
+  const filteredHotels = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return hotels;
+    return hotels.filter((h) => h.name.toLowerCase().includes(q));
+  }, [hotels, search]);
 
+  return (
+    <div className="p-6 max-w-5xl mx-auto space-y-6">
+      {/* Header */}
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-800 flex items-center gap-3">
+            <Building2 className="w-7 h-7 text-indigo-600" />
+            Hoteles
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Administra los hoteles y sedes del sistema.
+          </p>
+        </div>
+        <button
+          onClick={loadHotels}
+          disabled={loading}
+          className="inline-flex items-center gap-2 px-4 py-2 text-sm text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+          Actualizar
+        </button>
+      </header>
+
+      {/* Error */}
       {error && (
-        <div className="mb-4 rounded border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-800">
+        <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
           {error}
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Tabla de hoteles */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="font-medium">Listado de hoteles</h2>
-            {loading && <span className="text-xs text-gray-500">Cargando...</span>}
+      {/* Formulario de creación */}
+      <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+        <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-4">
+          {formMode === "create" ? "Agregar nuevo hotel" : "Editar hotel"}
+        </h2>
+        <div className="flex gap-3">
+          <div className="relative flex-1">
+            <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+              placeholder="Nombre del hotel"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+            />
           </div>
+          <button
+            onClick={() => handleSubmit()}
+            disabled={busy || !name.trim()}
+            className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Plus className="w-4 h-4" />
+            {busy ? "Guardando..." : formMode === "create" ? "Agregar" : "Guardar"}
+          </button>
+          {formMode === "edit" && (
+            <button
+              type="button"
+              onClick={resetForm}
+              className="inline-flex items-center px-3 py-2.5 text-sm border border-slate-300 bg-white text-slate-700 rounded-lg hover:bg-slate-50"
+            >
+              Cancelar
+            </button>
+          )}
+        </div>
+      </section>
 
-          <div className="border rounded-md overflow-hidden text-sm">
-            <table className="min-w-full border-collapse">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="px-3 py-2 text-left border-b">ID</th>
-                  <th className="px-3 py-2 text-left border-b">Nombre</th>
-                  <th className="px-3 py-2 text-left border-b">Estado</th>
-                  <th className="px-3 py-2 text-left border-b">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {hotels.length === 0 && !loading && (
-                  <tr>
-                    <td colSpan={4} className="px-3 py-4 text-center text-gray-500">
-                      No hay hoteles registrados.
-                    </td>
-                  </tr>
-                )}
+      {/* Lista */}
+      <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
+              Lista de Hoteles
+            </h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {filteredHotels.length} {filteredHotels.length === 1 ? "hotel" : "hoteles"} registrados
+            </p>
+          </div>
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar..."
+              className="pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-lg bg-slate-50 focus:bg-white focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500"
+            />
+          </div>
+        </div>
 
-                {hotels.map((h) => (
-                  <tr key={h.id} className="hover:bg-gray-50">
-                    <td className="px-3 py-2 border-b">{h.id}</td>
-                    <td className="px-3 py-2 border-b">{h.name}</td>
-                    <td className="px-3 py-2 border-b">
-                      <span
-                        className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                          h.active ? "bg-green-100 text-green-800" : "bg-gray-200 text-gray-700"
+        <div className="divide-y divide-slate-100">
+          {loading && (
+            <div className="px-6 py-12 text-center">
+              <RefreshCw className="w-8 h-8 animate-spin text-slate-400 mx-auto" />
+              <p className="mt-2 text-sm text-slate-500">Cargando hoteles...</p>
+            </div>
+          )}
+
+          {!loading && filteredHotels.length === 0 && (
+            <div className="px-6 py-12 text-center">
+              <Building2 className="w-12 h-12 text-slate-300 mx-auto" />
+              <h3 className="mt-4 text-lg font-medium text-slate-600">Sin hoteles</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                {search.trim() ? "No hay hoteles que coincidan con la búsqueda." : "Agrega tu primer hotel arriba."}
+              </p>
+            </div>
+          )}
+
+          {!loading && filteredHotels.map((h) => (
+            <div key={h.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-50 rounded-lg text-indigo-600">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-sm font-medium text-slate-800">{h.name}</span>
+                  <div className="mt-0.5">
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide uppercase ${h.active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"
                         }`}
-                      >
-                        {h.active ? "Activo" : "Inactivo"}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 border-b space-x-2">
-                      <button
-                        className="text-xs text-blue-600 hover:underline"
-                        onClick={() => startEdit(h)}
-                      >
-                        Editar
-                      </button>
-                      <button
-                        className="text-xs text-yellow-700 hover:underline"
-                        onClick={() => toggleActive(h)}
-                      >
-                        {h.active ? "Desactivar" : "Activar"}
-                      </button>
-                      <button
-                        className="text-xs text-red-600 hover:underline"
-                        onClick={() => handleDelete(h)}
-                      >
-                        Borrar
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Formulario crear/editar */}
-        <div>
-          <h2 className="font-medium mb-2">
-            {formMode === "create" ? "Crear hotel" : "Editar hotel"}
-          </h2>
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <div>
-              <label className="block text-sm mb-1">Nombre del hotel</label>
-              <input
-                type="text"
-                className="w-full border rounded px-3 py-2 text-sm"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Ej. Moon Palace Nizuc"
-              />
-            </div>
-
-            <div className="flex gap-2">
-              <button
-                type="submit"
-                className="inline-flex items-center px-4 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700"
-              >
-                {formMode === "create" ? "Crear" : "Guardar cambios"}
-              </button>
-
-              {formMode === "edit" && (
+                    >
+                      {h.active ? "Activo" : "Inactivo"}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
                 <button
-                  type="button"
-                  onClick={resetForm}
-                  className="inline-flex items-center px-3 py-2 text-sm rounded border border-gray-300 text-gray-700 hover:bg-gray-50"
+                  onClick={() => startEdit(h)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
                 >
-                  Cancelar
+                  <Edit className="w-3.5 h-3.5" />
+                  Editar
                 </button>
-              )}
+                <button
+                  onClick={() => toggleActive(h)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-lg hover:bg-amber-100"
+                >
+                  <Power className="w-3.5 h-3.5" />
+                  {h.active ? "Desactivar" : "Activar"}
+                </button>
+                <button
+                  onClick={() => handleDelete(h)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Eliminar
+                </button>
+              </div>
             </div>
-          </form>
+          ))}
         </div>
-      </div>
+      </section>
     </div>
   );
 }

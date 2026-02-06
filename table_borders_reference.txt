@@ -1,0 +1,96 @@
+// Sección de tabla completa con bordes
+// Esta es la implementación correcta con todos los bordes visibles
+
+// Encabezados de tabla
+cols.forEach((col) => {
+    page.drawText(col.label, {
+        x: col.x + 5,
+        y: yPosition - 5,
+        size: 9,
+        font: fontBold,
+    });
+});
+
+// Línea superior de la tabla (arriba de los encabezados)
+page.drawLine({
+    start: { x: margin, y: yPosition + 10 },
+    end: { x: width - margin, y: yPosition + 10 },
+    thickness: 1,
+    color: rgb(0, 0, 0),
+});
+
+// Línea debajo del encabezado
+yPosition -= rowHeight;
+page.drawLine({
+    start: { x: margin, y: yPosition + rowHeight },
+    end: { x: width - margin, y: yPosition + rowHeight },
+    thickness: 1,
+    color: rgb(0, 0, 0),
+});
+
+// Calcular posición inferior de la tabla
+const tableBottom = yPosition - (data.equipment.length * rowHeight);
+
+// Línea izquierda de la tabla (borde vertical izquierdo)
+page.drawLine({
+    start: { x: margin, y: yPosition + rowHeight + 10 },
+    end: { x: margin, y: tableBottom },
+    thickness: 1,
+    color: rgb(0, 0, 0),
+});
+
+// Líneas verticales entre columnas
+cols.forEach((col, index) => {
+    if (index < cols.length - 1) {
+        const xPos = col.x + col.width;
+        page.drawLine({
+            start: { x: xPos, y: yPosition + rowHeight + 10 },
+            end: { x: xPos, y: tableBottom },
+            thickness: 1,
+            color: rgb(0, 0, 0),
+        });
+    }
+});
+
+// Línea derecha de la tabla (borde vertical derecho)
+page.drawLine({
+    start: { x: width - margin, y: yPosition + rowHeight + 10 },
+    end: { x: width - margin, y: tableBottom },
+    thickness: 1,
+    color: rgb(0, 0, 0),
+});
+
+// Filas de equipos
+data.equipment.forEach((item, index) => {
+    const rowY = yPosition - (index * rowHeight);
+
+    // Verificar que no se pase del espacio disponible
+    if (rowY < margin + 150) {
+        return;
+    }
+
+    const values = [
+        item.type || '—',
+        item.brand || '—',
+        item.model || '—',
+        item.serial || '—',
+    ];
+
+    cols.forEach((col, i) => {
+        const text = values[i];
+        page.drawText(text, {
+            x: col.x + 5,
+            y: rowY - 5,
+            size: 9,
+            font: fontRegular,
+        });
+    });
+
+    // Línea horizontal debajo de cada fila
+    page.drawLine({
+        start: { x: margin, y: rowY - rowHeight },
+        end: { x: width - margin, y: rowY - rowHeight },
+        thickness: 1,
+        color: rgb(0, 0, 0),
+    });
+});

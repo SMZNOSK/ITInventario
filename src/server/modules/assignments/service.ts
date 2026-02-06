@@ -164,6 +164,9 @@ export async function create(input: CreateAssignmentInput) {
     });
   }
 
+  const assignmentDate = new Date();
+
+  // 1. Create assignment in local database
   const assignment = await prisma.$transaction(async (tx) => {
     const created = await tx.assignment.create({
       data: {
@@ -173,7 +176,7 @@ export async function create(input: CreateAssignmentInput) {
         departmentId: input.departmentId ?? null,
         platformId: input.platformId ?? null,
         status: "ASIGNADO",
-        assignedAt: new Date(),
+        assignedAt: assignmentDate,
       },
     });
 
@@ -184,6 +187,34 @@ export async function create(input: CreateAssignmentInput) {
 
     return created;
   });
+
+  // 2. Sync with PeopleSoft (if enabled)
+  if (process.env.PS_ENABLE === "1") {
+    try {
+      const { registrarBienPS } = await import("@/server/integrations/collabApi");
+
+      console.log("[create] Sincronizando asignación con PeopleSoft...");
+      console.log("[create] EMPLID:", collaborator.id);
+      console.log("[create] PropertyID:", asset.serial);
+      console.log("[create] Description:", asset.label || `Asset ${asset.serial}`);
+
+      await registrarBienPS({
+        emplid: collaborator.id,
+        propertyId: asset.serial,
+        description: asset.label || `Asset ${asset.serial}`,
+        dtIssued: assignmentDate.toISOString().split('T')[0], // YYYY-MM-DD
+      });
+
+      console.log("[create] ✓ Asignación sincronizada con PeopleSoft");
+    } catch (psError: any) {
+      // ⚠️ If PS fails, log but don't revert local transaction
+      console.error("[create] ⚠️ Error al sincronizar con PeopleSoft:", psError?.message);
+      console.error("[create] La asignación se registró localmente pero no en PeopleSoft");
+      // TODO: Could save to a retry queue
+    }
+  } else {
+    console.log("[create] PeopleSoft sync disabled (PS_ENABLE != 1)");
+  }
 
   return assignment;
 }
@@ -211,7 +242,8 @@ export async function list() {
   return assignments.map((a) => ({
     id: a.id,
     collaboratorId: a.collaboratorId,
-    collaboratorName: a.collaboratorName,
+    // Priorizar el nombre del colaborador relacionado sobre el campo denormalizado
+    collaboratorName: a.collaborator?.name ?? a.collaboratorName ?? null,
     hotelName: a.asset.currentHotel?.name ?? null,
     departmentName: a.department?.name ?? null,
     assetSerial: a.asset.serial,
@@ -223,6 +255,7 @@ export async function list() {
     teamName: a.collaborator?.teamName ?? null,
   }));
 }
+
 
 /* ========== Actualizar / eliminar / devolver (normal) ========== */
 
@@ -256,13 +289,22 @@ export async function remove(id: number) {
 }
 
 export async function markReturned(id: number) {
-  const existing = await prisma.assignment.findUnique({ where: { id } });
+  const existing = await prisma.assignment.findUnique({
+    where: { id },
+    include: {
+      collaborator: true, // Need EMPLID
+      asset: true,        // Need serial (propertyId)
+    },
+  });
   if (!existing) throw new Error("Asignación no encontrada");
 
+  const returnDate = new Date();
+
+  // 1. Update local database
   await prisma.$transaction(async (tx) => {
     await tx.assignment.update({
       where: { id },
-      data: { status: "DEVUELTO", returnedAt: new Date() },
+      data: { status: "DEVUELTO", returnedAt: returnDate },
     });
 
     await tx.asset.update({
@@ -270,6 +312,32 @@ export async function markReturned(id: number) {
       data: { status: "ALTA" },
     });
   });
+
+  // 2. Sync with PeopleSoft (if enabled)
+  if (process.env.PS_ENABLE === "1") {
+    try {
+      const { devolverBienPS } = await import("@/server/integrations/collabApi");
+
+      console.log("[markReturned] Sincronizando devolución con PeopleSoft...");
+      console.log("[markReturned] EMPLID:", existing.collaborator.id);
+      console.log("[markReturned] PropertyID:", existing.asset.serial);
+
+      await devolverBienPS({
+        emplid: existing.collaborator.id,
+        propertyId: existing.asset.serial,
+        dtReturned: returnDate.toISOString().split('T')[0], // YYYY-MM-DD
+      });
+
+      console.log("[markReturned] ✓ Devolución sincronizada con PeopleSoft");
+    } catch (psError: any) {
+      // ⚠️ If PS fails, log but don't revert local transaction
+      console.error("[markReturned] ⚠️ Error al sincronizar con PeopleSoft:", psError?.message);
+      console.error("[markReturned] La devolución se registró localmente pero no en PeopleSoft");
+      // TODO: Could save to a retry queue
+    }
+  } else {
+    console.log("[markReturned] PeopleSoft sync disabled (PS_ENABLE != 1)");
+  }
 }
 
 /* ========== Asignaciones MANUALES (sin número de colaborador) ========== */

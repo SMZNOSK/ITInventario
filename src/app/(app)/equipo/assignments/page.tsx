@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/app/providers";
 import {
   Monitor,
@@ -21,6 +22,11 @@ type PlatformOption = {
   name: string;
 };
 
+type HotelOption = {
+  id: number;
+  name: string;
+};
+
 type Collaborator = {
   id: string;
   name: string | null;
@@ -29,6 +35,7 @@ type Collaborator = {
   jobTitle?: string | null;
   departmentName?: string | null;
   teamName?: string | null;
+  source?: "local" | "peoplesoft";
 };
 
 type AssetLookup = {
@@ -44,6 +51,8 @@ type AssetLookup = {
 type AssetPickerItem = AssetLookup & {
   brandName?: string | null;
   modelName?: string | null;
+  hotelId?: number | null;
+  hotelName?: string | null;
 };
 
 // --- reglas para plataforma / nombre de equipo según tipo ---
@@ -84,6 +93,7 @@ function assetNeedsPlatform(asset: AssetLookup | null): boolean {
 
 export default function AssignmentsPage() {
   const { fetchJSON } = useAuth();
+  const searchParams = useSearchParams();
 
   // ------- formulario -------
   const [assetCode, setAssetCode] = useState("");
@@ -97,6 +107,16 @@ export default function AssignmentsPage() {
   const [requiresTeamName, setRequiresTeamName] = useState(false);
 
   const [addressText, setAddressText] = useState("Dirección del colaborador");
+
+  // Auto-populate from URL query params (when redirected from assets page)
+  useEffect(() => {
+    const assetCodeFromUrl = searchParams.get("assetCode");
+    if (assetCodeFromUrl && !assetCode) {
+      setAssetCode(assetCodeFromUrl);
+      // Trigger requirements check
+      void refreshAssetRequirements(assetCodeFromUrl);
+    }
+  }, [searchParams]);
   const [departmentText, setDepartmentText] = useState(
     "Se llenará desde PeopleSoft",
   );
@@ -110,6 +130,9 @@ export default function AssignmentsPage() {
     useState<Collaborator | null>(null);
   const [finding, setFinding] = useState(false);
   const [findError, setFindError] = useState<string | null>(null);
+  const [manualMode, setManualMode] = useState(false);
+  const [manualEmail, setManualEmail] = useState("");
+  const [manualDepartment, setManualDepartment] = useState("");
 
   // ------- submit -------
   const [creating, setCreating] = useState(false);
@@ -130,6 +153,11 @@ export default function AssignmentsPage() {
   // filtro de tipo (texto libre: LAP, CPU, RAD...)
   const [assetTypeFilter, setAssetTypeFilter] = useState("");
 
+  // ------- hoteles para filtro en modal -------
+  const [hotels, setHotels] = useState<HotelOption[]>([]);
+  const [loadingHotels, setLoadingHotels] = useState(false);
+  const [selectedHotelId, setSelectedHotelId] = useState<number | "">("")
+
   // ===================== plataformas =====================
   async function loadPlatforms() {
     setLoadingPlatforms(true);
@@ -138,8 +166,8 @@ export default function AssignmentsPage() {
       const items: PlatformOption[] = Array.isArray(data?.items)
         ? data.items
         : Array.isArray(data)
-        ? data
-        : [];
+          ? data
+          : [];
       setPlatforms(items);
     } catch (err) {
       console.error("Error al cargar plataformas", err);
@@ -148,8 +176,27 @@ export default function AssignmentsPage() {
     }
   }
 
+  // ===================== hoteles =====================
+  async function loadHotels() {
+    setLoadingHotels(true);
+    try {
+      const data = await fetchJSON("/api/catalog/hotels");
+      const items: HotelOption[] = Array.isArray(data?.items)
+        ? data.items
+        : Array.isArray(data)
+          ? data
+          : [];
+      setHotels(items);
+    } catch (err) {
+      console.error("Error al cargar hoteles", err);
+    } finally {
+      setLoadingHotels(false);
+    }
+  }
+
   useEffect(() => {
     loadPlatforms();
+    loadHotels();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -194,6 +241,7 @@ export default function AssignmentsPage() {
     setFindError(null);
     setFoundCollaborator(null);
     setCreateSuccess(null);
+    setManualMode(false);
 
     if (!id) {
       setFindError("Debes indicar el número de colaborador.");
@@ -210,15 +258,17 @@ export default function AssignmentsPage() {
       setCollaboratorName(data?.name ?? "");
       setTeamName(data?.teamName ?? "");
 
-      setAddressText("Dirección del colaborador (desde PeopleSoft)");
+      // Mostrar origen de los datos
+      const sourceLabel = data.source === "peoplesoft" ? "PeopleSoft" : "BD Local";
+      setAddressText(`Dirección del colaborador (${sourceLabel})`);
       setDepartmentText(
         data?.departmentName ??
-          data?.jobTitle ??
-          "Gerencia / departamento (desde PeopleSoft)",
+        data?.jobTitle ??
+        `Gerencia / departamento (${sourceLabel})`,
       );
     } catch (err: any) {
       console.error("Colaborador no encontrado o error:", err);
-      setFindError(err?.message || "Colaborador no encontrado");
+      setFindError(err?.message || "Colaborador no encontrado. Puedes capturar los datos manualmente.");
       setFoundCollaborator(null);
       setCollaboratorName("");
       setTeamName("");
@@ -227,6 +277,15 @@ export default function AssignmentsPage() {
     } finally {
       setFinding(false);
     }
+  }
+
+  // ===================== captura manual =====================
+  function handleEnableManualMode() {
+    setManualMode(true);
+    setFindError(null);
+    setFoundCollaborator(null);
+    setAddressText("Captura manual");
+    setDepartmentText("Captura manual");
   }
 
   // ===================== crear asignación =====================
@@ -304,16 +363,20 @@ export default function AssignmentsPage() {
   }
 
   // ===================== modal inventario =====================
-  async function loadAssetPicker() {
+  async function loadAssetPicker(hotelId?: number | "") {
     setAssetPickerLoading(true);
     setAssetPickerError(null);
     try {
-      const data = await fetchJSON("/api/assets/available?pageSize=200");
+      let url = "/api/assets/available?pageSize=200";
+      if (typeof hotelId === "number") {
+        url += `&hotelId=${hotelId}`;
+      }
+      const data = await fetchJSON(url);
       const items: AssetPickerItem[] = Array.isArray(data?.items)
         ? data.items
         : Array.isArray(data)
-        ? data
-        : [];
+          ? data
+          : [];
       setAssetPickerItems(items);
     } catch (err: any) {
       console.error("Error al cargar activos disponibles", err);
@@ -327,8 +390,14 @@ export default function AssignmentsPage() {
 
   function handleOpenAssetPicker() {
     setAssetTypeFilter("");
+    setSelectedHotelId("");
     setAssetPickerOpen(true);
     void loadAssetPicker();
+  }
+
+  function handleHotelFilterChange(hotelId: number | "") {
+    setSelectedHotelId(hotelId);
+    void loadAssetPicker(hotelId);
   }
 
   function handleUseAsset(item: AssetPickerItem) {
@@ -349,21 +418,25 @@ export default function AssignmentsPage() {
 
   // ===================== UI =====================
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-900">
-          Asignaciones de equipo
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          Registra y consulta qué equipo está asignado a cada colaborador.
-        </p>
-      </div>
+    <div className="p-6 max-w-6xl mx-auto space-y-6">
+      {/* Header */}
+      <header className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-800 flex items-center gap-3">
+            <Monitor className="w-7 h-7 text-indigo-600" />
+            Asignaciones de equipo
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            Registra y consulta qué equipo está asignado a cada colaborador.
+          </p>
+        </div>
+      </header>
 
       <form
         onSubmit={handleSubmit}
-        className="space-y-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"
+        className="space-y-6 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
       >
-        <h2 className="text-base font-semibold text-slate-900">
+        <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">
           Crear asignación
         </h2>
 
@@ -378,7 +451,7 @@ export default function AssignmentsPage() {
                 <Monitor className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                 <input
                   type="text"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-violet-500 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
                   placeholder="Ej. 1 o TEST-001"
                   value={assetCode}
                   onChange={(e) => setAssetCode(e.target.value)}
@@ -406,7 +479,7 @@ export default function AssignmentsPage() {
                 <Hash className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                 <input
                   type="text"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-violet-500 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
                   placeholder="Ej. 00012345"
                   value={collaboratorId}
                   onChange={(e) => setCollaboratorId(e.target.value)}
@@ -427,16 +500,20 @@ export default function AssignmentsPage() {
           {/* Nombre colaborador */}
           <div className="space-y-1">
             <label className="block text-xs font-medium text-slate-500">
-              Nombre del colaborador (opcional)
+              Nombre del colaborador {manualMode ? "(requerido)" : "(opcional)"}
             </label>
             <div className="relative">
               <User className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
               <input
                 type="text"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-violet-500 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                className={`w-full rounded-xl border border-slate-200 py-2 pl-9 pr-3 text-sm outline-none ${foundCollaborator && !manualMode
+                  ? "cursor-not-allowed bg-slate-100 text-slate-500"
+                  : "bg-slate-50 focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
+                  }`}
                 placeholder="Nombre Apellido"
                 value={collaboratorName}
                 onChange={(e) => setCollaboratorName(e.target.value)}
+                readOnly={!!foundCollaborator && !manualMode}
               />
             </div>
           </div>
@@ -484,7 +561,7 @@ export default function AssignmentsPage() {
                 className={
                   "w-full appearance-none rounded-xl border py-2 pl-9 pr-8 text-sm outline-none " +
                   (requiresPlatform
-                    ? "border-slate-200 bg-slate-50 focus:border-violet-500 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                    ? "border-slate-200 bg-slate-50 focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
                     : "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400")
                 }
                 disabled={!requiresPlatform || loadingPlatforms}
@@ -499,8 +576,8 @@ export default function AssignmentsPage() {
                   {!requiresPlatform
                     ? "No aplica"
                     : loadingPlatforms
-                    ? "Cargando plataformas..."
-                    : "Selecciona una plataforma"}
+                      ? "Cargando plataformas..."
+                      : "Selecciona una plataforma"}
                 </option>
                 {platforms.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -524,15 +601,15 @@ export default function AssignmentsPage() {
               className={
                 "w-full rounded-xl border py-2 pl-9 pr-3 text-sm outline-none " +
                 (requiresTeamName && !collaboratorHasTeamName
-                  ? "border-slate-200 bg-slate-50 focus:border-violet-500 focus:bg-white focus:ring-2 focus:ring-violet-100"
+                  ? "border-slate-200 bg-slate-50 focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
                   : "cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400")
               }
               placeholder={
                 !requiresTeamName
                   ? "No aplica para este tipo de equipo"
                   : collaboratorHasTeamName
-                  ? "Se usará el nombre de equipo registrado"
-                  : "Ej. GGUERREROMID"
+                    ? "Se usará el nombre de equipo registrado"
+                    : "Ej. GGUERREROMID"
               }
               value={
                 collaboratorHasTeamName
@@ -556,7 +633,7 @@ export default function AssignmentsPage() {
           <div className="relative">
             <FileText className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
             <textarea
-              className="min-h-[80px] w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-violet-500 focus:bg-white focus:ring-2 focus:ring-violet-100"
+              className="min-h-[80px] w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm outline-none focus:border-indigo-500 focus:bg-white focus:ring-2 focus:ring-indigo-100"
               placeholder="Notas adicionales sobre esta asignación"
               value={comments}
               onChange={(e) => setComments(e.target.value)}
@@ -566,18 +643,108 @@ export default function AssignmentsPage() {
 
         {/* mensajes */}
         {findError && (
-          <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            {findError}
+          <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span>⚠️</span>
+              <span>{findError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleEnableManualMode}
+              className="ml-4 inline-flex items-center gap-1 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-amber-700"
+            >
+              ✏️ Captura manual
+            </button>
           </div>
         )}
         {createError && (
-          <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
             {createError}
           </div>
         )}
         {createSuccess && (
-          <div className="rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+          <div className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
             {createSuccess}
+          </div>
+        )}
+
+        {/* Resultado de búsqueda de colaborador */}
+        {foundCollaborator && (
+          <div className="rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-emerald-800 flex items-center gap-2">
+                <User className="h-4 w-4" />
+                Colaborador encontrado
+              </h3>
+              <span className={`text-xs font-medium px-2 py-1 rounded-full ${foundCollaborator.source === "peoplesoft"
+                ? "bg-purple-100 text-purple-700"
+                : "bg-blue-100 text-blue-700"
+                }`}>
+                {foundCollaborator.source === "peoplesoft" ? "📡 PeopleSoft" : "💾 BD Local"}
+              </span>
+            </div>
+            <div className="grid gap-3 md:grid-cols-4 text-sm">
+              <div>
+                <span className="text-slate-500 text-xs">ID / EMPLID</span>
+                <p className="font-mono font-semibold text-slate-800">{foundCollaborator.id}</p>
+              </div>
+              <div>
+                <span className="text-slate-500 text-xs">Nombre</span>
+                <p className="font-semibold text-slate-800">{foundCollaborator.name || "—"}</p>
+              </div>
+              <div>
+                <span className="text-slate-500 text-xs">Departamento / Puesto</span>
+                <p className="text-slate-800">{foundCollaborator.departmentName || foundCollaborator.jobTitle || "—"}</p>
+              </div>
+              <div>
+                <span className="text-slate-500 text-xs">Email / Teléfono</span>
+                <p className="text-slate-800">{foundCollaborator.email || foundCollaborator.phone || "—"}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modo captura manual */}
+        {manualMode && !foundCollaborator && (
+          <div className="rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-amber-800 flex items-center gap-2">
+                <User className="h-4 w-4" />
+                Captura manual de colaborador
+              </h3>
+              <span className="text-xs font-medium px-2 py-1 rounded-full bg-amber-100 text-amber-700">
+                ✏️ Manual
+              </span>
+            </div>
+            <p className="text-xs text-amber-700 mb-3">
+              PeopleSoft no está disponible o el colaborador no fue encontrado. Ingresa los datos manualmente.
+            </p>
+            <div className="grid gap-3 md:grid-cols-2 text-sm">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Email (opcional)
+                </label>
+                <input
+                  type="email"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                  placeholder="colaborador@empresa.com"
+                  value={manualEmail}
+                  onChange={(e) => setManualEmail(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Gerencia / Departamento (opcional)
+                </label>
+                <input
+                  type="text"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                  placeholder="Ej. Tecnología / Sistemas"
+                  value={manualDepartment}
+                  onChange={(e) => setManualDepartment(e.target.value)}
+                />
+              </div>
+            </div>
           </div>
         )}
 
@@ -585,7 +752,7 @@ export default function AssignmentsPage() {
           <button
             type="submit"
             disabled={creating}
-            className="inline-flex items-center rounded-2xl bg-violet-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {creating ? "Creando..." : "Crear asignación"}
           </button>
@@ -595,40 +762,65 @@ export default function AssignmentsPage() {
       {/* =============== MODAL CAPTURA DE INVENTARIO =============== */}
       {assetPickerOpen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
-          <div className="relative max-h-[80vh] w-full max-w-5xl overflow-hidden rounded-3xl bg-white shadow-xl">
+          <div className="relative max-h-[80vh] w-full max-w-5xl overflow-hidden rounded-xl bg-white shadow-xl">
             {/* Header */}
-            <div className="flex items-center justify-between border-b px-6 py-4">
+            <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  Captura de inventario
-                </p>
-                <p className="text-xs text-slate-500">
+                <h3 className="text-base font-semibold text-slate-800">Captura de inventario</h3>
+                <p className="text-sm text-slate-500">
                   Selecciona un equipo disponible para asignar.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setAssetPickerOpen(false)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-100"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
-            {/* Filtro por tipo */}
-            <div className="border-b bg-slate-50 px-6 py-3">
-              <label className="block text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                Filtrar por tipo
-              </label>
-              <input
-                type="text"
-                placeholder='Ej. "LAP", "CPU", "RAD"...'
-                className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-200"
-                value={assetTypeFilter}
-                onChange={(e) => setAssetTypeFilter(e.target.value)}
-              />
+            {/* Filtros */}
+            <div className="border-b border-slate-200 bg-slate-50 px-6 py-3">
+              <div className="grid gap-3 md:grid-cols-2">
+                {/* Filtro por hotel */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-600">
+                    Filtrar por hotel/zona
+                  </label>
+                  <select
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                    value={selectedHotelId}
+                    onChange={(e) => handleHotelFilterChange(e.target.value ? Number(e.target.value) : "")}
+                    disabled={loadingHotels}
+                  >
+                    <option value="">
+                      {loadingHotels ? "Cargando..." : "Todos mis hoteles"}
+                    </option>
+                    {hotels.map((h) => (
+                      <option key={h.id} value={h.id}>
+                        {h.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Filtro por tipo */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-600">
+                    Filtrar por tipo
+                  </label>
+                  <input
+                    type="text"
+                    placeholder='Ej. "LAP", "CPU", "RAD"...'
+                    className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                    value={assetTypeFilter}
+                    onChange={(e) => setAssetTypeFilter(e.target.value)}
+                  />
+                </div>
+              </div>
               {assetPickerLoading && (
-                <p className="mt-1 text-[11px] text-slate-500">
+                <p className="mt-2 text-xs text-slate-500">
                   Cargando equipos disponibles...
                 </p>
               )}

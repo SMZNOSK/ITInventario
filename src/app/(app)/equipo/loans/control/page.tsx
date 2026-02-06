@@ -16,6 +16,7 @@ import {
   Users,
   Clock,
   Package,
+  Printer,
 } from "lucide-react";
 
 type LoanApiItem = {
@@ -177,6 +178,11 @@ export default function LoansControlPage() {
     setHotelFilter("");
   };
 
+  const handlePrint = (item: CollaboratorLoanGroup) => {
+    // Abrir PDF en nueva pestaña
+    window.open(`/api/loans/${item.firstLoanId}/pdf`, '_blank');
+  };
+
   const hasActiveFilters = searchQuery.trim() || statusFilter !== "all" || hotelFilter;
 
   return (
@@ -279,8 +285,8 @@ export default function LoansControlPage() {
             <button
               onClick={() => setStatusFilter("all")}
               className={`px-4 py-2 rounded-md transition-all ${statusFilter === "all"
-                  ? "bg-white text-slate-900 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
                 }`}
             >
               Todos
@@ -288,8 +294,8 @@ export default function LoansControlPage() {
             <button
               onClick={() => setStatusFilter("active")}
               className={`px-4 py-2 rounded-md transition-all ${statusFilter === "active"
-                  ? "bg-white text-slate-900 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
                 }`}
             >
               Activos
@@ -297,8 +303,8 @@ export default function LoansControlPage() {
             <button
               onClick={() => setStatusFilter("expired")}
               className={`px-4 py-2 rounded-md transition-all ${statusFilter === "expired"
-                  ? "bg-white text-slate-900 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
                 }`}
             >
               Vencidos
@@ -428,8 +434,8 @@ export default function LoansControlPage() {
                       <td className="px-4 py-4">
                         <span
                           className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${expired
-                              ? "bg-amber-100 text-amber-800"
-                              : "bg-emerald-100 text-emerald-800"
+                            ? "bg-amber-100 text-amber-800"
+                            : "bg-emerald-100 text-emerald-800"
                             }`}
                         >
                           {expired ? "Vencido" : "Activo"}
@@ -437,6 +443,14 @@ export default function LoansControlPage() {
                       </td>
                       <td className="px-4 py-4 text-right">
                         <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => handlePrint(item)}
+                            disabled={item.totalLoans === 0}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                            Imprimir
+                          </button>
                           <button
                             onClick={() => router.push(`/equipo/loans/${item.firstLoanId}`)}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"

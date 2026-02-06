@@ -21,8 +21,11 @@ export const DisposalDTO = z
     // notas adicionales opcionales
     notes: z.string().optional(),
 
-    // evidencia opcional (PDF/foto, URL absoluta o relativa)
+    // evidencia opcional (PDF/foto, URL absoluta o relativa) - legacy single URL
     evidenceUrl: z.string().url().optional(),
+
+    // evidencias múltiples (array de URLs)
+    evidenceUrls: z.array(z.string()).optional(),
 
     // quién hizo la baja (id de usuario); opcional por ahora
     createdById: z.number().int().optional(),

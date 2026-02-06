@@ -86,10 +86,8 @@ export const GET = withError(async (req: NextRequest) => {
 
   const and: Prisma.LoanWhereInput[] = [];
 
-  // ✅ Filtro por hoteles del usuario (ADMIN ve todos, otros solo sus hoteles)
-  if (auth.data.role !== "ADMIN") {
-    and.push({ hotelId: { in: auth.data.hotels } });
-  }
+  // ✅ Todos los usuarios pueden VER todos los préstamos (solo visualización)
+  // Las restricciones de hotel se mantienen en la creación/edición de préstamos
 
   if (department) {
     and.push({ departmentName: { contains: department, mode: "insensitive" } });
@@ -202,10 +200,14 @@ export const GET = withError(async (req: NextRequest) => {
     const assetTypeCode =
       (assetCodeLabel ? assetCodeLabel.split("-")[0] : null) ?? asset?.typeCode ?? null;
 
-    // ✅ Determinar si el préstamo está devuelto basándose en el status del activo
-    // ASIGNADO = préstamo activo, ALTA = devuelto
+    // ✅ Estado del activo (para referencia, pero no para determinar si está devuelto)
     const assetStatus = asset?.status ?? null;
-    const isReturned = assetStatus === "ALTA";
+
+    // ✅ Determinar si el préstamo está devuelto basándose en returnDate Y estado del activo
+    // Un préstamo solo está devuelto si:
+    // 1. returnDate está establecida (fue marcado como devuelto)
+    // 2. El activo NO está en estado ASIGNADO (fue liberado correctamente)
+    const isReturned = loan.returnDate !== null && assetStatus !== 'ASIGNADO';
 
     return {
       id: loan.id,
@@ -223,6 +225,7 @@ export const GET = withError(async (req: NextRequest) => {
 
       startDate: loan.startDate.toISOString(),
       endDate: loan.endDate.toISOString(),
+      returnDate: loan.returnDate?.toISOString() ?? null, // ✅ Agregar returnDate
       totalAssets: 1,
 
       // ✅ CAMPOS CORRECTOS PARA TABLA:
@@ -231,7 +234,7 @@ export const GET = withError(async (req: NextRequest) => {
       assetTypeCode,
       assetId: asset?.id ?? null,
       assetStatus, // ✅ Estado del activo
-      isReturned, // ✅ Indica si el préstamo fue devuelto
+      isReturned, // ✅ Indica si el préstamo fue devuelto (basado en returnDate)
     };
   });
 

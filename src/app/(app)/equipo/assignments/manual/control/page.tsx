@@ -287,8 +287,8 @@ export default function ManualAssignmentsControlPage() {
             <button
               onClick={() => setStatusFilter("all")}
               className={`px-4 py-2 rounded-md transition-all ${statusFilter === "all"
-                  ? "bg-white text-slate-900 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
                 }`}
             >
               Todos
@@ -296,8 +296,8 @@ export default function ManualAssignmentsControlPage() {
             <button
               onClick={() => setStatusFilter("ASIGNADO")}
               className={`px-4 py-2 rounded-md transition-all ${statusFilter === "ASIGNADO"
-                  ? "bg-white text-slate-900 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
                 }`}
             >
               Con Equipos
@@ -305,8 +305,8 @@ export default function ManualAssignmentsControlPage() {
             <button
               onClick={() => setStatusFilter("DEVUELTO")}
               className={`px-4 py-2 rounded-md transition-all ${statusFilter === "DEVUELTO"
-                  ? "bg-white text-slate-900 shadow-sm"
-                  : "text-slate-500 hover:text-slate-700"
+                ? "bg-white text-slate-900 shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
                 }`}
             >
               Sin Equipos
@@ -415,8 +415,8 @@ export default function ManualAssignmentsControlPage() {
                         <div className="space-y-1">
                           <span
                             className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${status === "ASIGNADO"
-                                ? "bg-emerald-100 text-emerald-800"
-                                : "bg-slate-100 text-slate-600"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-slate-100 text-slate-600"
                               }`}
                           >
                             {status === "ASIGNADO" ? "Asignado" : "Sin equipos"}
@@ -435,13 +435,13 @@ export default function ManualAssignmentsControlPage() {
                             <Eye className="w-3.5 h-3.5" />
                             Ver
                           </Link>
-                          <Link
-                            href={`/equipo/assignments/manual/${keyEncoded}?print=1`}
+                          <button
+                            onClick={() => window.open(`/api/assignments/manual/pdf?key=${keyEncoded}`, '_blank')}
                             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50"
                           >
                             <Printer className="w-3.5 h-3.5" />
                             Imprimir
-                          </Link>
+                          </button>
                         </div>
                       </td>
                     </tr>

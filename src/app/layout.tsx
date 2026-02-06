@@ -5,6 +5,7 @@ import "./globals.css";
 
 // 👇 Ojo: es default, NO named export
 import AuthProvider from "./providers/AuthProvider";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 
 export const metadata: Metadata = {
   title: "Inventario TI",
@@ -18,9 +19,11 @@ export default function RootLayout({
 }) {
   return (
     <html lang="es">
-      <body className="bg-slate-50 text-slate-900">
-        {/* Todo el árbol tiene contexto de auth */}
-        <AuthProvider>{children}</AuthProvider>
+      <body className="transition-colors duration-300">
+        <ThemeProvider>
+          {/* Todo el árbol tiene contexto de auth */}
+          <AuthProvider>{children}</AuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

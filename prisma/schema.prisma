@@ -55,7 +55,7 @@ model Model {
 model OperatingSystem {
   id        Int      @id @default(autoincrement())
   name      String   @unique // p.ej. "Windows 11 Pro"
-  vendor    String?  // p.ej. "Microsoft"
+  vendor    String? // p.ej. "Microsoft"
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -64,7 +64,7 @@ model OperatingSystem {
 model Processor {
   id           Int      @id @default(autoincrement())
   name         String   @unique // p.ej. "Intel Core i5-10400"
-  vendor       String?  // Intel / AMD / Apple / etc
+  vendor       String? // Intel / AMD / Apple / etc
   cores        Int?
   threads      Int?
   baseClockGhz Float?
@@ -96,7 +96,7 @@ model DiskType {
 model StorageCapacity {
   id        Int      @id @default(autoincrement())
   name      String   @unique // "256 GB", "512 GB", "1 TB"…
-  vendor    String?  // opcional, por si quieres marca
+  vendor    String? // opcional, por si quieres marca
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -139,12 +139,24 @@ model Hotel {
   // ✅ Backref correcto para Loan.hotel (misma relation name)
   loans Loan[] @relation("LoanHotel")
 
-  // ✅ Relaciones para transferencias
+  // ✅ Relaciones para transferencias de activos
   transfersAsOrigin AssetTransfer[] @relation("TransferOrigin")
   transfersAsDest   AssetTransfer[] @relation("TransferDest")
 
   // ✅ Relación para bajas
   disposals Disposal[] @relation("HotelDisposals")
+
+  // ✅ Relaciones para transferencias de asignaciones
+  assignmentTransfersAsOrigin AssignmentTransfer[] @relation("AssignmentTransferOrigin")
+  assignmentTransfersAsDest   AssignmentTransfer[] @relation("AssignmentTransferDest")
+
+  // ✅ Relaciones para transferencias de préstamos
+  loanTransfersAsOrigin LoanTransfer[] @relation("LoanTransferOrigin")
+  loanTransfersAsDest   LoanTransfer[] @relation("LoanTransferDest")
+
+  // ✅ Relaciones para transferencias de asignaciones manuales
+  manualAssignmentTransfersAsOrigin ManualAssignmentTransfer[] @relation("ManualAssignmentTransferOrigin")
+  manualAssignmentTransfersAsDest   ManualAssignmentTransfer[] @relation("ManualAssignmentTransferDest")
 }
 
 model Asset {
@@ -205,8 +217,8 @@ model Assignment {
   /// Catálogo Plataforma
   platformId   Int?
 
-  asset       Asset @relation("AssetAssignments", fields: [assetId], references: [id])
-  createdBy   User? @relation("UserAssignments", fields: [createdById], references: [id])
+  asset        Asset         @relation("AssetAssignments", fields: [assetId], references: [id])
+  createdBy    User?         @relation("UserAssignments", fields: [createdById], references: [id])
   collaborator Collaborator? @relation("CollaboratorAssignments", fields: [collaboratorId], references: [id])
 
   department Department? @relation(fields: [departmentId], references: [id])
@@ -262,14 +274,14 @@ model Loan {
 
   // ✅ Equipo prestado (ID/serial/etiqueta inventario)
   // Ej: "LAP-000001 · POIUHGVBN8"
-  teamName          String
+  teamName String
 
   // ✅ Nombre de equipo (solo CPU/LAP)
   // Ej: "PFUNDACIONZM2"
-  deviceName        String?
+  deviceName String?
 
-  hotelId   Int?
-  hotel     Hotel?  @relation("LoanHotel", fields: [hotelId], references: [id])
+  hotelId Int?
+  hotel   Hotel? @relation("LoanHotel", fields: [hotelId], references: [id])
 
   hotelName String? // opcional (snapshot)
 
@@ -279,6 +291,7 @@ model Loan {
   comments  String?
   startDate DateTime
   endDate   DateTime
+  returnDate DateTime? // ✅ Fecha real de devolución del préstamo
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -292,39 +305,39 @@ model Loan {
 /// ===================== Disposal / BAJAS  =====================
 
 model Disposal {
-  id            Int       @id @default(autoincrement())
-  assetId       Int
-  hotelId       Int?      // Hotel del equipo al momento de la baja
-  reason        String
-  notes         String?
-  evidenceUrl   String?   // Legacy: single URL (para compatibilidad)
-  disposedAt    DateTime  @default(now())
-  createdById   Int?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  restoredAt    DateTime? // Fecha de restauración a ALTA
-  restoredById  Int?      // Usuario que restauró
+  id           Int       @id @default(autoincrement())
+  assetId      Int
+  hotelId      Int? // Hotel del equipo al momento de la baja
+  reason       String
+  notes        String?
+  evidenceUrl  String? // Legacy: single URL (para compatibilidad)
+  disposedAt   DateTime  @default(now())
+  createdById  Int?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  restoredAt   DateTime? // Fecha de restauración a ALTA
+  restoredById Int? // Usuario que restauró
 
-  asset       Asset    @relation("AssetDisposals", fields: [assetId], references: [id])
-  hotel       Hotel?   @relation("HotelDisposals", fields: [hotelId], references: [id])
-  createdBy   User?    @relation("UserDisposals", fields: [createdById], references: [id])
-  restoredBy  User?    @relation("UserRestoredDisposals", fields: [restoredById], references: [id])
-  evidences   DisposalEvidence[]
+  asset      Asset              @relation("AssetDisposals", fields: [assetId], references: [id])
+  hotel      Hotel?             @relation("HotelDisposals", fields: [hotelId], references: [id])
+  createdBy  User?              @relation("UserDisposals", fields: [createdById], references: [id])
+  restoredBy User?              @relation("UserRestoredDisposals", fields: [restoredById], references: [id])
+  evidences  DisposalEvidence[]
 
   @@index([assetId])
   @@index([hotelId])
 }
 
 model DisposalEvidence {
-  id          Int      @id @default(autoincrement())
-  disposalId  Int
-  url         String
-  filename    String?
-  mime        String?
-  size        Int?
-  createdAt   DateTime @default(now())
+  id         Int      @id @default(autoincrement())
+  disposalId Int
+  url        String
+  filename   String?
+  mime       String?
+  size       Int?
+  createdAt  DateTime @default(now())
 
-  disposal    Disposal @relation(fields: [disposalId], references: [id], onDelete: Cascade)
+  disposal Disposal @relation(fields: [disposalId], references: [id], onDelete: Cascade)
 
   @@index([disposalId])
 }
@@ -354,6 +367,9 @@ model Collaborator {
   phone    String?
   email    String?
   jobTitle String?
+  
+  /// Department name from PeopleSoft
+  departmentName String?
 
   teamName String? @unique
 
@@ -362,6 +378,7 @@ model Collaborator {
 
   assignments Assignment[] @relation("CollaboratorAssignments")
 }
+
 
 model UserHotel {
   id      Int @id @default(autoincrement())
@@ -441,22 +458,43 @@ enum Role {
   INGENIERO
 }
 
+enum AssignmentTransferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELED
+}
+
+enum LoanTransferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELED
+}
+
+enum ManualAssignmentTransferStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELED
+}
+
 /// ===================== Asset Transfers =====================
 model AssetTransfer {
-  id              Int            @id @default(autoincrement())
-  assetId         Int
-  originHotelId   Int
-  destHotelId     Int
-  status          TransferStatus @default(PENDING)
+  id            Int            @id @default(autoincrement())
+  assetId       Int
+  originHotelId Int
+  destHotelId   Int
+  status        TransferStatus @default(PENDING)
 
-  createdByUserId   Int
-  acceptedByUserId  Int?
-  canceledByUserId  Int?
+  createdByUserId  Int
+  acceptedByUserId Int?
+  canceledByUserId Int?
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  acceptedAt  DateTime?
-  canceledAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  acceptedAt DateTime?
+  canceledAt DateTime?
 
   asset       Asset @relation(fields: [assetId], references: [id])
   originHotel Hotel @relation("TransferOrigin", fields: [originHotelId], references: [id])
@@ -465,4 +503,98 @@ model AssetTransfer {
   @@index([assetId, status])
   @@index([destHotelId, status])
   @@index([originHotelId, status])
+}
+
+/// ===================== Assignment Transfers =====================
+model AssignmentTransfer {
+  id               Int                      @id @default(autoincrement())
+  collaboratorId   String // Colaborador que se transfiere
+  collaboratorName String? // Snapshot del nombre
+  originHotelId    Int
+  destHotelId      Int
+  status           AssignmentTransferStatus @default(PENDING)
+
+  // Metadata
+  createdByUserId  Int
+  acceptedByUserId Int?
+  rejectedByUserId Int?
+  canceledByUserId Int?
+
+  // Timestamps
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  acceptedAt DateTime?
+  rejectedAt DateTime?
+  canceledAt DateTime?
+
+  // Relaciones
+  originHotel Hotel @relation("AssignmentTransferOrigin", fields: [originHotelId], references: [id])
+  destHotel   Hotel @relation("AssignmentTransferDest", fields: [destHotelId], references: [id])
+
+  @@index([collaboratorId, status])
+  @@index([destHotelId, status])
+  @@index([originHotelId, status])
+}
+
+/// ===================== Loan Transfers =====================
+model LoanTransfer {
+  id               Int                @id @default(autoincrement())
+  collaboratorId   String // Colaborador cuyos préstamos se transfieren
+  collaboratorName String? // Snapshot del nombre
+  originHotelId    Int
+  destHotelId      Int
+  status           LoanTransferStatus @default(PENDING)
+
+  // Metadata
+  createdByUserId  Int
+  acceptedByUserId Int?
+  rejectedByUserId Int?
+  canceledByUserId Int?
+
+  // Timestamps
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  acceptedAt DateTime?
+  rejectedAt DateTime?
+  canceledAt DateTime?
+
+  // Relaciones
+  originHotel Hotel @relation("LoanTransferOrigin", fields: [originHotelId], references: [id])
+  destHotel   Hotel @relation("LoanTransferDest", fields: [destHotelId], references: [id])
+
+  @@index([collaboratorId, status])
+  @@index([destHotelId, status])
+  @@index([originHotelId, status])
+}
+
+/// ===================== Manual Assignment Transfers =====================
+model ManualAssignmentTransfer {
+  id               Int     @id @default(autoincrement())
+  collaboratorKey  String // Key used to identify collaborator (name||email||hotel||dept)
+  collaboratorName String? // Snapshot del nombre
+
+  originHotelId Int
+  destHotelId   Int
+  status        ManualAssignmentTransferStatus @default(PENDING)
+
+  // Metadata
+  createdByUserId  Int
+  acceptedByUserId Int?
+  rejectedByUserId Int?
+  canceledByUserId Int?
+
+  // Timestamps
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  acceptedAt DateTime?
+  rejectedAt DateTime?
+  canceledAt DateTime?
+
+  // Relaciones
+  originHotel Hotel @relation("ManualAssignmentTransferOrigin", fields: [originHotelId], references: [id])
+  destHotel   Hotel @relation("ManualAssignmentTransferDest", fields: [destHotelId], references: [id])
+
+  @@index([collaboratorKey, status])
+  @@index([originHotelId])
+  @@index([destHotelId])
 }
