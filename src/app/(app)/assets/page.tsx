@@ -151,9 +151,7 @@ export default function AssetsPage() {
   const [hotelFilter, setHotelFilter] = useState<string>("");
   const [hotels, setHotels] = useState<{ id: number; name: string }[]>([]);
 
-  const [importCode, setImportCode] = useState("");
-  const [importMsg, setImportMsg] = useState<string | null>(null);
-  const [importLoading, setImportLoading] = useState(false);
+
 
   const [rowActionMsg, setRowActionMsg] = useState<string | null>(null);
 
@@ -301,46 +299,7 @@ export default function AssetsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [qs]);
 
-  /* ========= Importar por código ========= */
 
-  async function handleImport(e: React.FormEvent) {
-    e.preventDefault();
-    const code = importCode.trim();
-    if (!code) return;
-
-    try {
-      setImportLoading(true);
-      setImportMsg(null);
-
-      const res = await fetch(
-        `/api/assets/import/by-code/${encodeURIComponent(code)}`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            Accept: "application/json",
-          },
-        },
-      );
-
-      const data = await res.json().catch(() => ({}));
-
-      if (!res.ok || (data && data.ok === false)) {
-        const msg =
-          data?.message || data?.error || data?.reason || `HTTP ${res.status}`;
-        throw new Error(msg);
-      }
-
-      setImportMsg(`✅ Importado: ${code}`);
-      setImportCode("");
-      await load();
-    } catch (e: any) {
-      console.error(e);
-      setImportMsg(`❌ Error: ${e?.message || "No se pudo importar"}`);
-    } finally {
-      setImportLoading(false);
-    }
-  }
 
   /* ========= Acciones sobre filas ========= */
 
@@ -812,8 +771,8 @@ export default function AssetsPage() {
                 type="button"
                 onClick={() => setStatusFilter(pill.value)}
                 className={`px-3 py-1.5 rounded-md transition-all ${statusFilter === pill.value
-                    ? "bg-white text-slate-900 shadow-sm"
-                    : "text-slate-500 hover:text-slate-700"
+                  ? "bg-white text-slate-900 shadow-sm"
+                  : "text-slate-500 hover:text-slate-700"
                   }`}
               >
                 {pill.label}
@@ -843,46 +802,7 @@ export default function AssetsPage() {
         </div>
       </section>
 
-      {/* Tarjeta: Importar por código */}
-      <section className="max-w-md">
-        <form
-          onSubmit={handleImport}
-          className="bg-white border rounded-xl p-4 shadow-sm flex flex-col gap-3"
-        >
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-1">
-              Importar por código
-            </label>
-            <input
-              value={importCode}
-              onChange={(e) => setImportCode(e.target.value)}
-              placeholder="ABC123"
-              className="
-                w-full rounded-lg border px-3 py-2 text-sm
-                bg-white text-slate-900 placeholder:text-slate-400
-                border-slate-300
-                focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500
-              "
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={importLoading || !importCode.trim()}
-            className="
-              inline-flex items-center justify-center
-              px-3 py-2 text-sm font-medium rounded-lg
-              bg-slate-900 text-white
-              hover:bg-slate-800
-              disabled:opacity-50 disabled:cursor-not-allowed
-            "
-          >
-            {importLoading ? "Importando…" : "Importar"}
-          </button>
-          {importMsg && (
-            <span className="text-sm text-slate-700">{importMsg}</span>
-          )}
-        </form>
-      </section>
+
 
       {/* Mensajes */}
       {rowActionMsg && <p className="text-sm text-slate-700">{rowActionMsg}</p>}

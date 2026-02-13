@@ -148,7 +148,7 @@ export async function create(input: CreateAssignmentInput) {
     throw new Error("No se encontró el equipo a asignar.");
   }
 
-  let collaborator = await ensureCollaborator(input.collaboratorId, {
+  const collaborator = await ensureCollaborator(input.collaboratorId, {
     name: collaboratorName,
   });
 
@@ -157,11 +157,14 @@ export async function create(input: CreateAssignmentInput) {
       ? safeText(input.teamName)
       : null;
 
-  if (!collaborator.teamName && incomingTeamName) {
-    collaborator = await prisma.collaborator.update({
-      where: { id: collaborator.id },
-      data: { teamName: incomingTeamName },
-    });
+  if (incomingTeamName) {
+    const existing = await prisma.collaborator.findUnique({ where: { id: collaborator.id } });
+    if (existing && !existing.teamName) {
+      await prisma.collaborator.update({
+        where: { id: collaborator.id },
+        data: { teamName: incomingTeamName },
+      });
+    }
   }
 
   const assignmentDate = new Date();
@@ -196,12 +199,12 @@ export async function create(input: CreateAssignmentInput) {
       console.log("[create] Sincronizando asignación con PeopleSoft...");
       console.log("[create] EMPLID:", collaborator.id);
       console.log("[create] PropertyID:", asset.serial);
-      console.log("[create] Description:", asset.label || `Asset ${asset.serial}`);
+      console.log("[create] Description:", `Asset ${asset.serial}`);
 
       await registrarBienPS({
         emplid: collaborator.id,
         propertyId: asset.serial,
-        description: asset.label || `Asset ${asset.serial}`,
+        description: `Asset ${asset.serial}`,
         dtIssued: assignmentDate.toISOString().split('T')[0], // YYYY-MM-DD
       });
 
@@ -245,7 +248,8 @@ export async function list() {
     // Priorizar el nombre del colaborador relacionado sobre el campo denormalizado
     collaboratorName: a.collaborator?.name ?? a.collaboratorName ?? null,
     hotelName: a.asset.currentHotel?.name ?? null,
-    departmentName: a.department?.name ?? null,
+    // Priorizar catálogo interno, fallback a dato de PeopleSoft en el colaborador
+    departmentName: a.department?.name ?? a.collaborator?.departmentName ?? null,
     assetSerial: a.asset.serial,
     assetLabel: buildAssetLabel(a.asset),
     platformName: a.platform?.name ?? null,
@@ -313,27 +317,30 @@ export async function markReturned(id: number) {
     });
   });
 
-  // 2. Sync with PeopleSoft (if enabled)
+  // 2. Sync con PeopleSoft (AUDIT_ACTN=C + DT_RETURNED)
+  //    Nota: Solo funciona si el registro ya existe en la tabla principal de PS.
+  //    Los registros nuevos tardan en procesarse (batch nocturno).
   if (process.env.PS_ENABLE === "1") {
     try {
       const { devolverBienPS } = await import("@/server/integrations/collabApi");
 
-      console.log("[markReturned] Sincronizando devolución con PeopleSoft...");
-      console.log("[markReturned] EMPLID:", existing.collaborator.id);
-      console.log("[markReturned] PropertyID:", existing.asset.serial);
+      if (!existing.collaborator || !existing.asset) {
+        console.warn("[markReturned] ⚠️ No se encontró collaborator/asset para sync PS");
+      } else {
+        console.log("[markReturned] Sincronizando devolución con PeopleSoft...");
 
-      await devolverBienPS({
-        emplid: existing.collaborator.id,
-        propertyId: existing.asset.serial,
-        dtReturned: returnDate.toISOString().split('T')[0], // YYYY-MM-DD
-      });
+        await devolverBienPS({
+          emplid: existing.collaborator.id,
+          propertyId: existing.asset.serial,
+          dtReturned: returnDate.toISOString().split('T')[0], // YYYY-MM-DD
+        });
 
-      console.log("[markReturned] ✓ Devolución sincronizada con PeopleSoft");
+        console.log("[markReturned] ✓ Devolución sincronizada con PeopleSoft");
+      }
     } catch (psError: any) {
-      // ⚠️ If PS fails, log but don't revert local transaction
-      console.error("[markReturned] ⚠️ Error al sincronizar con PeopleSoft:", psError?.message);
-      console.error("[markReturned] La devolución se registró localmente pero no en PeopleSoft");
-      // TODO: Could save to a retry queue
+      // Si PS rechaza (ej: registro aún no procesado por batch), solo logueamos
+      console.warn("[markReturned] ⚠️ PS no aceptó la devolución:", psError?.message);
+      console.warn("[markReturned] La devolución se registró localmente. Si el equipo fue asignado recientemente, PS aún no ha procesado el registro.");
     }
   } else {
     console.log("[markReturned] PeopleSoft sync disabled (PS_ENABLE != 1)");

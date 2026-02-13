@@ -89,8 +89,12 @@ export async function altaColaboradorPS(emplId: string): Promise<SoapRaw> {
       </ph:PH_ALTA_COLAB_REQ>
   `.trim();
 
+  // Use service-specific credentials
+  const user = (process.env.PS_ALTA_COLAB_USER || "").replace(/^["']|["']$/g, '').trim();
+  const pass = (process.env.PS_ALTA_COLAB_PASS || "").replace(/^["']|["']$/g, '').trim();
+
   // Pasar el namespace para que se declare en el envelope (como SoapUI)
-  const xml = await soapPost(endpoint, action, body, ns);
+  const xml = await soapPost(endpoint, action, body, ns, { user, pass });
   const json = parser.parse(xml);
 
   return { xml, json };
@@ -107,7 +111,7 @@ export async function bienesPorEmpleadoPS(emplId: string): Promise<SoapRaw> {
 
   // Estructura según WSDL PH_BIENES_EMPL (consulta)
   const body = `
-    <ph:PH_BIENES_EMPL_REQ xmlns:ph="${ns}">
+    <ph:PH_BIENES_EMPL_REQ>
       <ph:FieldTypes>
         <ph:PH_BIEN_EMPL_TB class="R">
           <ph:EMPLID type="CHAR"/>
@@ -141,7 +145,11 @@ export async function bienesPorEmpleadoPS(emplId: string): Promise<SoapRaw> {
     </ph:PH_BIENES_EMPL_REQ>
   `.trim();
 
-  const xml = await soapPost(endpoint, action || undefined, body);
+  // Use service-specific credentials for read operations
+  const user = (process.env.PS_BIENES_EMPL_USER || "").replace(/^["']|["']$/g, '').trim();
+  const pass = (process.env.PS_BIENES_EMPL_PASS || "").replace(/^["']|["']$/g, '').trim();
+
+  const xml = await soapPost(endpoint, action || undefined, body, ns, { user, pass });
   const json = parser.parse(xml);
 
   return { xml, json };
@@ -169,39 +177,88 @@ export async function registrarBienPS(input: RegistrarBienInput): Promise<SoapRa
   const ns = requireEnv("PS_BIENES_CIA_NS");
   const action = process.env.PS_BIENES_CIA_ACTION;
 
-  // TODO: Ajustar estructura según WSDL real de PH_BIENES_CIA_EMPLEADO
-  // Esta es una estimación basada en la estructura de respuesta
+  // Use service-specific credentials for write operations
+  const user = (process.env.PS_BIENES_CIA_USER || "").replace(/^["']|["']$/g, '').trim();
+  const pass = (process.env.PS_BIENES_CIA_PASS || "").replace(/^["']|["']$/g, '').trim();
+
+  // PROPERTY_ID max 10 chars según WSDL
+  const propId = input.propertyId.substring(0, 10);
+
+  // Estructura EXACTA del WSDL:
+  // - Record: PH_BCIA_REQ_TBL (NO PH_BIENES_EM_TB)
+  // - Campos: EMPLID, PROPERTY_ID, DT_ISSUED (sin DESCR2 ni DESCRLONG)
   const body = `
-    <ph:PH_BIENES_CIA_REQ xmlns:ph="${ns}">
+    <ph:PH_BIENES_CIA_REQ>
+      <ph:FieldTypes>
+        <ph:PH_BCIA_REQ_TBL class="R">
+          <ph:EMPLID type="CHAR"/>
+          <ph:PROPERTY_ID type="CHAR"/>
+          <ph:DT_ISSUED type="DATE"/>
+        </ph:PH_BCIA_REQ_TBL>
+        <ph:PSCAMA class="R">
+          <ph:LANGUAGE_CD type="CHAR"/>
+          <ph:AUDIT_ACTN type="CHAR"/>
+          <ph:BASE_LANGUAGE_CD type="CHAR"/>
+          <ph:MSG_SEQ_FLG type="CHAR"/>
+          <ph:PROCESS_INSTANCE type="NUMBER"/>
+          <ph:PUBLISH_RULE_ID type="CHAR"/>
+          <ph:MSGNODENAME type="CHAR"/>
+        </ph:PSCAMA>
+      </ph:FieldTypes>
       <ph:MsgData>
         <ph:Transaction>
-          <ph:PH_BIENES_EM_TB class="R">
+          <ph:PH_BCIA_REQ_TBL class="R">
             <ph:EMPLID IsChanged="Y">${input.emplid}</ph:EMPLID>
-            <ph:PROPERTY_ID IsChanged="Y">${input.propertyId}</ph:PROPERTY_ID>
-            <ph:DESCR2 IsChanged="Y">${input.description}</ph:DESCR2>
+            <ph:PROPERTY_ID IsChanged="Y">${propId}</ph:PROPERTY_ID>
             <ph:DT_ISSUED IsChanged="Y">${input.dtIssued}</ph:DT_ISSUED>
-            <ph:DESCRLONG IsChanged="Y">${input.notes || ""}</ph:DESCRLONG>
-          </ph:PH_BIENES_EM_TB>
+          </ph:PH_BCIA_REQ_TBL>
           <ph:PSCAMA class="R">
             <ph:LANGUAGE_CD IsChanged="N">ESP</ph:LANGUAGE_CD>
             <ph:AUDIT_ACTN IsChanged="Y">A</ph:AUDIT_ACTN>
             <ph:BASE_LANGUAGE_CD IsChanged="N">ESP</ph:BASE_LANGUAGE_CD>
+            <ph:MSG_SEQ_FLG IsChanged="N">N</ph:MSG_SEQ_FLG>
+            <ph:PROCESS_INSTANCE IsChanged="N">0</ph:PROCESS_INSTANCE>
+            <ph:PUBLISH_RULE_ID IsChanged="N"></ph:PUBLISH_RULE_ID>
+            <ph:MSGNODENAME IsChanged="N"></ph:MSGNODENAME>
           </ph:PSCAMA>
         </ph:Transaction>
       </ph:MsgData>
     </ph:PH_BIENES_CIA_REQ>
   `.trim();
 
-  console.log("[registrarBienPS] Registrando bien en PS:", input.propertyId, "para", input.emplid);
-  const xml = await soapPost(endpoint, action || undefined, body);
+  console.log("[registrarBienPS] Registrando bien en PS:", propId, "para", input.emplid);
+  console.log("[registrarBienPS] Using credentials:", user);
+
+  // Pass namespace to envelope AND service-specific credentials
+  const xml = await soapPost(endpoint, action || undefined, body, ns, { user, pass });
   const json = parser.parse(xml);
+
+  // Verificar respuesta de PeopleSoft
+  const validateMatch = xml.match(/<VALIDATE[^>]*>([^<]*)<\/VALIDATE>/);
+  const messageMatch = xml.match(/<MESSAGE_TEXT[^>]*>([^<]*)<\/MESSAGE_TEXT>/);
+  const validate = validateMatch?.[1];
+  const message = messageMatch?.[1] || '';
+
+  console.log(`[registrarBienPS] PS Response: VALIDATE=${validate}, MESSAGE=${message}`);
+
+  if (validate !== 'T') {
+    throw new Error(`[registrarBienPS] PeopleSoft rechazó la asignación: VALIDATE=${validate} MESSAGE=${message}`);
+  }
 
   return { xml, json };
 }
 
 /**
  * Registrar devolución de bien en PeopleSoft (SOAP)
- * Actualiza DT_RETURNED para marcar el bien como devuelto
+ * 
+ * IMPORTANTE: Para que funcione, el registro DEBE existir en la tabla principal de PS.
+ * Los registros nuevos tardan en procesarse (batch). Si el registro aún no existe,
+ * PS responderá con VALIDATE=F.
+ * 
+ * Estructura verificada por test A/B:
+ * - AUDIT_ACTN = C (Change) — NO "A" (Add)
+ * - DT_RETURNED es el único campo de datos adicional
+ * - NO incluir DT_ISSUED (causa conflicto)
  */
 export interface DevolverBienInput {
   emplid: string;
@@ -217,29 +274,75 @@ export async function devolverBienPS(input: DevolverBienInput): Promise<SoapRaw>
   const ns = requireEnv("PS_BIENES_CIA_NS");
   const action = process.env.PS_BIENES_CIA_ACTION;
 
-  // TODO: Ajustar estructura según WSDL real
+  // Use service-specific credentials for write operations
+  const user = (process.env.PS_BIENES_CIA_USER || "").replace(/^["']|["']$/g, '').trim();
+  const pass = (process.env.PS_BIENES_CIA_PASS || "").replace(/^["']|["']$/g, '').trim();
+
+  // PROPERTY_ID max 10 chars según WSDL
+  const propId = input.propertyId.substring(0, 10);
+
+  // Estructura correcta verificada por test A/B:
+  // - Record: PH_BCIA_REQ_TBL
+  // - Solo DT_RETURNED (sin DT_ISSUED)
+  // - AUDIT_ACTN = C (Change, para modificar registro existente)
   const body = `
-    <ph:PH_BIENES_CIA_REQ xmlns:ph="${ns}">
+    <ph:PH_BIENES_CIA_REQ>
+      <ph:FieldTypes>
+        <ph:PH_BCIA_REQ_TBL class="R">
+          <ph:EMPLID type="CHAR"/>
+          <ph:PROPERTY_ID type="CHAR"/>
+          <ph:DT_RETURNED type="DATE"/>
+        </ph:PH_BCIA_REQ_TBL>
+        <ph:PSCAMA class="R">
+          <ph:LANGUAGE_CD type="CHAR"/>
+          <ph:AUDIT_ACTN type="CHAR"/>
+          <ph:BASE_LANGUAGE_CD type="CHAR"/>
+          <ph:MSG_SEQ_FLG type="CHAR"/>
+          <ph:PROCESS_INSTANCE type="NUMBER"/>
+          <ph:PUBLISH_RULE_ID type="CHAR"/>
+          <ph:MSGNODENAME type="CHAR"/>
+        </ph:PSCAMA>
+      </ph:FieldTypes>
       <ph:MsgData>
         <ph:Transaction>
-          <ph:PH_BIENES_EM_TB class="R">
+          <ph:PH_BCIA_REQ_TBL class="R">
             <ph:EMPLID IsChanged="Y">${input.emplid}</ph:EMPLID>
-            <ph:PROPERTY_ID IsChanged="Y">${input.propertyId}</ph:PROPERTY_ID>
+            <ph:PROPERTY_ID IsChanged="Y">${propId}</ph:PROPERTY_ID>
             <ph:DT_RETURNED IsChanged="Y">${input.dtReturned}</ph:DT_RETURNED>
-          </ph:PH_BIENES_EM_TB>
+          </ph:PH_BCIA_REQ_TBL>
           <ph:PSCAMA class="R">
             <ph:LANGUAGE_CD IsChanged="N">ESP</ph:LANGUAGE_CD>
             <ph:AUDIT_ACTN IsChanged="Y">C</ph:AUDIT_ACTN>
             <ph:BASE_LANGUAGE_CD IsChanged="N">ESP</ph:BASE_LANGUAGE_CD>
+            <ph:MSG_SEQ_FLG IsChanged="N">N</ph:MSG_SEQ_FLG>
+            <ph:PROCESS_INSTANCE IsChanged="N">0</ph:PROCESS_INSTANCE>
+            <ph:PUBLISH_RULE_ID IsChanged="N"></ph:PUBLISH_RULE_ID>
+            <ph:MSGNODENAME IsChanged="N"></ph:MSGNODENAME>
           </ph:PSCAMA>
         </ph:Transaction>
       </ph:MsgData>
     </ph:PH_BIENES_CIA_REQ>
   `.trim();
 
-  console.log("[devolverBienPS] Marcando devolución en PS:", input.propertyId, "para", input.emplid);
-  const xml = await soapPost(endpoint, action || undefined, body);
+  console.log("[devolverBienPS] Marcando devolución en PS:", propId, "para", input.emplid);
+  console.log("[devolverBienPS] DT_RETURNED:", input.dtReturned, "| AUDIT_ACTN: C");
+  console.log("[devolverBienPS] Using credentials:", user);
+
+  // Pass namespace to envelope AND service-specific credentials
+  const xml = await soapPost(endpoint, action || undefined, body, ns, { user, pass });
   const json = parser.parse(xml);
+
+  // Verificar respuesta de PeopleSoft
+  const validateMatch = xml.match(/<VALIDATE[^>]*>([^<]*)<\/VALIDATE>/);
+  const messageMatch = xml.match(/<MESSAGE_TEXT[^>]*>([^<]*)<\/MESSAGE_TEXT>/);
+  const validate = validateMatch?.[1];
+  const message = messageMatch?.[1] || '';
+
+  console.log(`[devolverBienPS] PS Response: VALIDATE=${validate}, MESSAGE=${message}`);
+
+  if (validate !== 'T') {
+    throw new Error(`[devolverBienPS] PeopleSoft rechazó la devolución: VALIDATE=${validate} MESSAGE=${message}`);
+  }
 
   return { xml, json };
 }
